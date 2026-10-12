@@ -1,0 +1,15 @@
+# Ignore Mac OS hidden files
+.DS_Store
+
+# Ignore all generated flat files and data directories
+tpcds-kit/data_*/
+tpcds_shared_data/
+
+# Ignore generated SQL queries
+tpcds-kit/queries/
+
+# Ignore compiled C binaries and object files
+tpcds-kit/tools/*.o
+tpcds-kit/tools/dsdgen
+tpcds-kit/tools/dsqgen
+tpcds-kit/tools/checksum
