@@ -9,7 +9,7 @@ if [ -z "$DB_NAME" ]; then
 fi
 
 QUERY_DIR="/optimized_queries"
-SA_PASS="YourStrong!Passw0rd"
+SA_PASS=$MSSQL_SA_PASSWORD
 
 if [ -z "$(ls -A $QUERY_DIR/*.sql 2>/dev/null)" ]; then
     echo "Error: No .sql files found in $QUERY_DIR."

@@ -13,3 +13,6 @@ tpcds-kit/tools/*.o
 tpcds-kit/tools/dsdgen
 tpcds-kit/tools/dsqgen
 tpcds-kit/tools/checksum
+
+# Ignore secrets
+.env
