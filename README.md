@@ -27,7 +27,7 @@ docker compose up -d
 
 ### 2. Generate TPC-DS Data
 
-Compile the TPC-DS tools and generate the flat `.dat` files natively inside the Ubuntu workspace container. By default, this script generates the 1GB, 2GB, 5GB, and 10GB scale factors. Optionally pass one or more positive integer scale factors to generate only those sizes; each is written to a `data_<size>GB` folder.
+Compile the TPC-DS tools and generate the flat `.dat` files natively inside the Ubuntu workspace container. By default, this script generates the 1GB, 2GB, 5GB, and 10GB scale factors. It uses the number of available CPU cores and launches one `dsdgen` process per core for each scale factor, then concatenates each table's partitions into one `tablename.dat` file. Optionally pass one or more positive integer scale factors to generate only those sizes; each is written to a `data_<size>GB` folder.
 
 ```bash
 # Generate the default 1GB, 2GB, 5GB, and 10GB datasets
@@ -35,6 +35,9 @@ docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh
 
 # Generate only the 1GB and 2GB datasets
 docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh 1 2
+
+# Generate the default datasets without parallelism
+docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh --no-parallel
 
 ```
 

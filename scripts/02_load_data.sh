@@ -29,10 +29,18 @@ if [ ! -d "$DATA_DIR" ]; then
 fi
 
 echo "Beginning bulk inserts..."
-for file in $DATA_DIR/*.dat; do
-    tablename=$(basename "$file" .dat)
+shopt -s nullglob
+data_files=("$DATA_DIR"/*.dat)
+if [ "${#data_files[@]}" -eq 0 ]; then
+    echo "Error: No .dat files found in $DATA_DIR."
+    exit 1
+fi
+
+for file in "${data_files[@]}"; do
+    filename=$(basename "$file")
+    tablename=${filename%.dat}
     echo "Loading $tablename..."
-    /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASS" -C -d $DB_NAME -Q "BULK INSERT $tablename FROM '$file' WITH (FIELDTERMINATOR = '|', ROWTERMINATOR = '|\n', TABLOCK);"
+    /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASS" -C -d "$DB_NAME" -Q "BULK INSERT $tablename FROM '$file' WITH (FIELDTERMINATOR = '|', ROWTERMINATOR = '|\n', TABLOCK);"
 done
 
 echo "Setting up table constraints and foreign key referential integrity..."
