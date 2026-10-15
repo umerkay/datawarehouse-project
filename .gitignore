@@ -1,8 +1,12 @@
 # Ignore Mac OS hidden files
 .DS_Store
 
+# Ignore IDE config folders
+.vscode
+
 # Ignore all generated flat files and data directories
-tpcds-kit/data_*/
+data/
+benchmark_results/
 tpcds_shared_data/
 
 # Ignore generated SQL queries

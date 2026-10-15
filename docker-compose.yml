@@ -11,30 +11,26 @@ services:
       - "1433:1433"
     volumes:
       - tpcds_shared_data:/workspace
-      - ./scripts:/scripts
       - ./tpcds-kit:/tpcds-kit
-      - ./optimized_queries:/optimized_queries
+      - ./scripts:/scripts
+      - ./data:/data
+      - ./benchmark_results:/benchmark_results
       - mssql_data:/var/opt/mssql
 
   workspace:
-    image: ubuntu:22.04
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace
     container_name: tpcds_workspace
     environment:
       - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD}
     depends_on:
       - sqlserver
-    command:
-      - bash
-      - -c
-      - |
-        apt-get update &&
-        DEBIAN_FRONTEND=noninteractive apt-get install -y gcc make bison byacc flex python3 python3-pip &&
-        tail -f /dev/null
     volumes:
+      - tpcds_shared_data:/workspace
       - ./tpcds-kit:/tpcds-kit
       - ./scripts:/scripts
-      - tpcds_shared_data:/workspace
-      - ./optimized_queries:/optimized_queries
+      - ./data:/data
 
 volumes:
   tpcds_shared_data:

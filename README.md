@@ -8,7 +8,6 @@ To guarantee perfect reproducibility across different host operating systems, th
 
 ## Prerequisites
 * Docker and Docker Compose installed.
-* Manually optimized T-SQL queries placed in the `optimized_queries/` directory at the root of the project.
 
 ---
 
@@ -16,10 +15,10 @@ To guarantee perfect reproducibility across different host operating systems, th
 
 ### 1. Spin up the Environment
 
-Build and start both containers in the background. This will automatically mount the shared folders (`/tpcds-kit`, `/scripts`, `/optimized_queries`) and create a permanent storage volume for the database.
+Build and start both containers in the background. The workspace build installs all required compilation and Python dependencies before its container starts. Compose will also mount the shared folders (`/tpcds-kit`, `/scripts`, `/data`) and create a permanent storage volume for the database.
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 
 ```
 
@@ -27,7 +26,7 @@ docker compose up -d
 
 ### 2. Generate TPC-DS Data
 
-Compile the TPC-DS tools and generate the flat `.dat` files natively inside the Ubuntu workspace container. By default, this script generates the 1GB, 2GB, 5GB, and 10GB scale factors. It uses the number of available CPU cores and launches one `dsdgen` process per core for each scale factor, then concatenates each table's partitions into one `tablename.dat` file. Optionally pass one or more positive integer scale factors to generate only those sizes; each is written to a `data_<size>GB` folder.
+Compile the TPC-DS tools and generate the flat `.dat` files natively inside the Ubuntu workspace container. By default, this script generates the 1GB, 2GB, 5GB, and 10GB scale factors. It uses the number of available CPU cores and launches one `dsdgen` process per core for each scale factor, then concatenates each table's partitions into one `tablename.dat` file. Optionally pass one or more positive integer scale factors to generate only those sizes; each is written to a `/data/<size>GB/dataset` folder.
 
 ```bash
 # Generate the default 1GB, 2GB, 5GB, and 10GB datasets
@@ -38,6 +37,9 @@ docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh 1 2
 
 # Generate the default datasets without parallelism
 docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh --no-parallel
+
+# For development: after optimizing a query, you can regenerate just the query sets (without recompiling dsdgen) with:
+docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh --queryset --no-recompile
 
 ```
 
@@ -56,14 +58,33 @@ docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01
 
 Execute the benchmark script against the populated database. This script runs directly inside the SQL Server container.
 
-**Protocol:** The script automatically finds all `.sql` files in the `/optimized_queries` folder. It runs the entire suite **6 times**. The first run is discarded to allow for buffer pool warm-up, and the remaining 5 runs are averaged. Execution times are tracked with millisecond precision.
+**Protocol:** The script automatically finds all `.sql` files in the `/data/<SCALE_FOLDER>/queryset` folder. It runs the entire suite **6 times**. The first run is discarded to allow for buffer pool warm-up, and the remaining 5 runs are averaged. Execution times are tracked with millisecond precision.
 
-**Usage:** `bash /scripts/03_run_benchmark.sh <DB_NAME>`
+**Usage:** `bash /scripts/03_run_benchmark.sh <SCALE_FOLDER> <DB_NAME>`
 
 ```bash
-docker exec -it tpcds_sqlserver bash /scripts/03_run_benchmark.sh tpcds_01
+docker exec -it tpcds_sqlserver bash /scripts/03_run_benchmark.sh 1GB tpcds_01
 
 ```
+
+### 5. Development: Profile Individual Queries
+
+Use the separate profiling script when you want diagnostic timings for each statement rather than the normal aggregate benchmark. It splits all files in `data/<SCALE_FOLDER>/queryset` at semicolon-terminated statements, runs every statement once for warm-up and five measured times, then ranks the statements by average duration. It logs each query before and after execution; on failure, it reports the query, run, elapsed time, and `sqlcmd` exit code, then stops.
+
+**Usage:** `bash /scripts/04_profile_queries.sh <SCALE_FOLDER> <DB_NAME>`
+
+```bash
+docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01
+
+```
+
+Each profiling run creates a timestamped directory under `benchmark_results/` containing:
+
+* `timings.csv`: every measured execution time for each query.
+* `summary.csv`: queries ranked from slowest to fastest by their average execution time.
+* `report.html`: a self-contained horizontal bar chart of the ranked averages. Open this file in a browser to identify the slowest queries; the top 10 are highlighted in red.
+
+Query names combine the SQL filename and the one-based statement number. For example, `query_0_003` is the third statement in `data/<SCALE_FOLDER>/queryset/query_0.sql`. Individual timings include the small, approximately constant `sqlcmd` process startup overhead. This profiling script is intended for optimization work; continue to use `03_run_benchmark.sh` for comparable full-suite benchmark results.
 
 ---
 

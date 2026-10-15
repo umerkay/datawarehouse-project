@@ -1,14 +1,15 @@
 #!/bin/bash
 set -e
 
-DB_NAME=$1
+SCALE_FOLDER=$1
+DB_NAME=$2
 
 if [ -z "$DB_NAME" ]; then
     echo "Error: Missing database name."
     exit 1
 fi
 
-QUERY_DIR="/optimized_queries"
+QUERY_DIR="/data/${SCALE_FOLDER}/queryset"
 SA_PASS=$MSSQL_SA_PASSWORD
 
 if [ -z "$(ls -A $QUERY_DIR/*.sql 2>/dev/null)" ]; then

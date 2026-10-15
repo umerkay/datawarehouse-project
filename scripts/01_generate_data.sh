@@ -5,12 +5,20 @@ echo "Starting TPC-DS data generation..."
 
 DEFAULT_SIZES=(1 2 5 10)
 SIZES=()
+SKIP_RECOMPILE=false
 NO_PARALLEL=false
+ONLY_QUERIES=false
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        --no-recompile)
+            SKIP_RECOMPILE=true
+            ;;
         --no-parallel)
             NO_PARALLEL=true
+            ;;
+        --queryset)
+            ONLY_QUERIES=true
             ;;
         -*)
             echo "Error: Unknown option: $1" >&2
@@ -50,9 +58,11 @@ fi
 cd /tpcds-kit/tools
 
 # 2. Clean previous Mac builds and compile for Linux
-echo "Compiling dsdgen for Linux..."
-make -s clean
-make -s OS=LINUX > /dev/null 2>&1
+if [ "$SKIP_RECOMPILE" = false ]; then
+    echo "Compiling dsdgen for Linux..."
+    make -s clean
+    make -s OS=LINUX > /dev/null 2>&1
+fi
 
 # 3. Generate the data for each requested scale factor
 echo "Generating data for scale factors: ${SIZES[*]}GB ..."
@@ -65,23 +75,44 @@ fi
 for size in "${SIZES[@]}"; do
     echo ""
     echo "    > Scale factor ${size}GB"
-    output_dir="../data_${size}GB"
-    mkdir -p "$output_dir"
+
+    queryset_dir="/data/${size}GB/queryset"
+    mkdir -p "$queryset_dir"
+    rm -rf "$queryset_dir"/*.sql
+    ./dsqgen \
+        -DIRECTORY ../query_templates \
+        -INPUT ../query_templates/templates.lst \
+        -QUIET Y \
+        -QUALIFY Y \
+        -SCALE "${size}" \
+        -DIALECT sqlserver \
+        -OUTPUT_DIR "$queryset_dir"
+
+    # At this point a single query_0.sql file is generated with all queries inside.
+    # TODO: It may be interesting to separate that file into one-per-query, for ease of development.
+    # Note: We can still keep all queries in one file concat.sql for the benchmarking step.
+    
+    if [ "$ONLY_QUERIES" = true ]; then
+        continue
+    fi
+
+    dataset_dir="/data/${size}GB/dataset"
+    mkdir -p "$dataset_dir"
 
     shopt -s nullglob
-    existing_data_files=("$output_dir"/*.dat)
+    existing_data_files=("$dataset_dir"/*.dat)
     if [ "${#existing_data_files[@]}" -gt 0 ]; then
         rm -- "${existing_data_files[@]}"
     fi
 
     if [ "$NO_PARALLEL" = true ]; then
-        ./dsdgen -scale "$size" -dir "$output_dir" -force
+        ./dsdgen -scale "$size" -dir "$dataset_dir" -force
         continue
     fi
 
     child_pids=()
     for ((child = 1; child <= PARALLELISM; child++)); do
-        ./dsdgen -scale "$size" -dir "$output_dir" -force \
+        ./dsdgen -scale "$size" -dir "$dataset_dir" -force \
             -parallel "$PARALLELISM" -child "$child" &
         child_pids+=("$!")
     done
@@ -99,7 +130,7 @@ for size in "${SIZES[@]}"; do
     fi
 
     declare -A shard_tables=()
-    for file in "$output_dir"/*.dat; do
+    for file in "$dataset_dir"/*.dat; do
         filename=${file##*/}
         if [[ "$filename" =~ ^(.+)_([0-9]+)_([0-9]+)\.dat$ ]]; then
             shard_tables["${BASH_REMATCH[1]}"]=1
@@ -114,7 +145,7 @@ for size in "${SIZES[@]}"; do
     echo "Combining generated partitions into one file per table..."
     for table in "${!shard_tables[@]}"; do
         shard_files=()
-        for file in "$output_dir"/*.dat; do
+        for file in "$dataset_dir"/*.dat; do
             filename=${file##*/}
             if [[ "$filename" =~ ^(.+)_([0-9]+)_([0-9]+)\.dat$ ]] &&
                 [ "${BASH_REMATCH[1]}" = "$table" ]; then
@@ -123,15 +154,15 @@ for size in "${SIZES[@]}"; do
         done
 
         mapfile -t sorted_shard_files < <(printf '%s\n' "${shard_files[@]}" | sort -V)
-        temporary_file="$output_dir/.${table}.dat.tmp.$$"
+        temporary_file="$dataset_dir/.${table}.dat.tmp.$$"
         cat "${sorted_shard_files[@]}" > "$temporary_file"
     done
 
     for table in "${!shard_tables[@]}"; do
-        mv -- "$output_dir/.$table.dat.tmp.$$" "$output_dir/$table.dat"
+        mv -- "$dataset_dir/.$table.dat.tmp.$$" "$dataset_dir/$table.dat"
     done
 
-    for file in "$output_dir"/*.dat; do
+    for file in "$dataset_dir"/*.dat; do
         filename=${file##*/}
         if [[ "$filename" =~ ^(.+)_([0-9]+)_([0-9]+)\.dat$ ]]; then
             rm -- "$file"

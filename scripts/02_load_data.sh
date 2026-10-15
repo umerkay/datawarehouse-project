@@ -21,7 +21,7 @@ echo "Creating schema..."
 /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASS" -C -d $DB_NAME -i /tpcds-kit/tools/tpcds.sql
 /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASS" -C -d $DB_NAME -i /tpcds-kit/tools/tpcds_source.sql
 
-DATA_DIR="/tpcds-kit/data_${SCALE_FOLDER}"
+DATA_DIR="/data/${SCALE_FOLDER}/dataset"
 
 if [ ! -d "$DATA_DIR" ]; then
     echo "Error: Directory $DATA_DIR does not exist."
