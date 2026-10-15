@@ -33,7 +33,7 @@
 -- Contributors:
 -- 
  define YEAR= random(1998,2002, uniform); 
- define AGG= text({"sum",1},{"min",1},{"max",1},{"avg",1},{"stddev_samp",1});
+ define AGG= text({"sum",1},{"min",1},{"max",1},{"avg",1},{"stdev",1});
  define _LIMIT=100;
  
  [_LIMITA] select [_LIMITB] 

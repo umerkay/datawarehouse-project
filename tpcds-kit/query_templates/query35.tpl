@@ -34,9 +34,9 @@
 -- 
 
  define YEAR=random(1999,2002,uniform);
- define AGGONE= text({"sum",1},{"min",1},{"max",1},{"avg",1},{"stddev_samp",1}); 
- define AGGTWO= text({"sum",1},{"min",1},{"max",1},{"avg",1},{"stddev_samp",1}); 
- define AGGTHREE= text({"sum",1},{"min",1},{"max",1},{"avg",1},{"stddev_samp",1}); 
+ define AGGONE= text({"sum",1},{"min",1},{"max",1},{"avg",1},{"stdev",1}); 
+ define AGGTWO= text({"sum",1},{"min",1},{"max",1},{"avg",1},{"stdev",1}); 
+ define AGGTHREE= text({"sum",1},{"min",1},{"max",1},{"avg",1},{"stdev",1}); 
  define _LIMIT=100;
  
  [_LIMITA] select [_LIMITB]  
