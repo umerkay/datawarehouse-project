@@ -10,10 +10,11 @@ if [ -z "$DB_NAME" ]; then
 fi
 
 QUERY_DIR="/data/${SCALE_FOLDER}/queryset"
+QUERY_FILE="$QUERY_DIR/benchmark.sql"
 SA_PASS=$MSSQL_SA_PASSWORD
 
-if [ -z "$(ls -A $QUERY_DIR/*.sql 2>/dev/null)" ]; then
-    echo "Error: No .sql files found in $QUERY_DIR."
+if [ ! -f "$QUERY_FILE" ]; then
+    echo "Error: Benchmark file not found: $QUERY_FILE."
     exit 1
 fi
 
@@ -34,9 +35,7 @@ for RUN in {1..6}; do
     # Record time in milliseconds
     START_TIME=$(date +%s%3N)
 
-    for query_file in "$QUERY_DIR"/*.sql; do
-        /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASS" -C -d $DB_NAME -i "$query_file" -o /dev/null
-    done
+    /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASS" -C -d $DB_NAME -i "$QUERY_FILE" -o /dev/null
 
     # Record end time in milliseconds
     END_TIME=$(date +%s%3N)

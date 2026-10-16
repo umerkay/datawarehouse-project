@@ -8,6 +8,7 @@ SIZES=()
 SKIP_RECOMPILE=false
 NO_PARALLEL=false
 ONLY_QUERIES=false
+SPLIT_QUERIES=false
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -19,6 +20,9 @@ while [ "$#" -gt 0 ]; do
             ;;
         --queryset)
             ONLY_QUERIES=true
+            ;;
+        --split-queries)
+            SPLIT_QUERIES=true
             ;;
         -*)
             echo "Error: Unknown option: $1" >&2
@@ -76,6 +80,7 @@ for size in "${SIZES[@]}"; do
     echo ""
     echo "    > Scale factor ${size}GB"
 
+    # Generate query set for this scale factor
     queryset_dir="/data/${size}GB/queryset"
     mkdir -p "$queryset_dir"
     rm -rf "$queryset_dir"/*.sql
@@ -88,14 +93,31 @@ for size in "${SIZES[@]}"; do
         -DIALECT sqlserver \
         -OUTPUT_DIR "$queryset_dir"
 
-    # At this point a single query_0.sql file is generated with all queries inside.
-    # TODO: It may be interesting to separate that file into one-per-query, for ease of development.
-    # Note: We can still keep all queries in one file concat.sql for the benchmarking step.
+    # Assuming generated file is named query_0.sql containing all queries
+    mv -- "$queryset_dir/query_0.sql" "$queryset_dir/benchmark.sql"
+    if [ "$SPLIT_QUERIES" = true ]; then
+        : > "$queryset_dir/queries.lst"
+
+        awk -v dir="$queryset_dir" '
+        BEGIN { RS = ";" }
+        {
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+            if ($0 == "") next
+
+            n++
+            file = sprintf("%s/query_%03d.sql", dir, n)
+            print $0 ";" > file
+            close(file)
+            print sprintf("query_%03d.sql", n) >> (dir "/queries.lst")
+        }
+        ' "$queryset_dir/benchmark.sql"
+    fi
     
     if [ "$ONLY_QUERIES" = true ]; then
         continue
     fi
 
+    # Generate dataset for this scale factor
     dataset_dir="/data/${size}GB/dataset"
     mkdir -p "$dataset_dir"
 

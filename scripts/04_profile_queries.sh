@@ -3,17 +3,78 @@ set -euo pipefail
 
 SCALE_FOLDER=$1
 DB_NAME=${2:-}
-SKIP_TO_IDX=${3:-0}
+
+# Required positional parameters
+SCALE_FOLDER=$1
+DB_NAME=${2:-}
+shift 2
+
+# Optional flags
+_MAX_INT=2147483647
+FROM=0
+TO=$_MAX_INT
+LIST=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --from)
+            if [[ $# -lt 2 || "$2" == --* || $2 < 1 ]]; then
+                echo "Error: --from requires a value greater than 0" >&2
+                exit 1
+            fi
+            FROM="$2"
+            shift 2
+            ;;
+        --to)
+            if [[ $# -lt 2 || "$2" == --* || $2 < 1 ]]; then
+                echo "Error: --to requires a value greater than 0" >&2
+                exit 1
+            fi
+            TO="$2"
+            shift 2
+            ;;
+        --list)
+            shift
+            while [[ $# -gt 0 && "$1" != --* ]]; do
+                LIST+=("$1")
+                shift
+            done
+            ;;
+        *)
+            echo "Unknown parameter: $1" >&2
+            exit 1
+            ;;
+    esac
+done
 
 if [ -z "$DB_NAME" ]; then
     echo "Error: Missing database name."
     exit 1
 fi
 
+# If list is provided, reset from/to to defaults
+if [[ ${#LIST[@]} -gt 0 ]]; then
+    FROM=0
+    TO=$_MAX_INT
+fi
+
+if ((TO < FROM)); then
+    echo "Invalid [--from .. --to] range, --from is greater than --to; nothing to run."
+    exit 0
+fi
+
 QUERY_DIR=${QUERY_DIR:-/data/$SCALE_FOLDER/queryset}
 RESULTS_DIR=${RESULTS_DIR:-/benchmark_results}
 SQLCMD_BIN=${SQLCMD_BIN:-/opt/mssql-tools18/bin/sqlcmd}
 SA_PASS=${MSSQL_SA_PASSWORD:-}
+QUERY_LIST="$QUERY_DIR/queries.lst"
+
+if [ ! -f "$QUERY_LIST" ]; then
+    echo "Warning: Query list not found: $QUERY_LIST" >&2
+    echo "Generate the split queries with:" >&2
+    echo "docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh --queryset --split-queries --no-recompile" >&2
+    exit 1
+fi
 
 if [ -z "$SA_PASS" ]; then
     echo "Error: MSSQL_SA_PASSWORD is not set."
@@ -25,75 +86,34 @@ if [ ! -x "$SQLCMD_BIN" ]; then
     exit 1
 fi
 
-shopt -s nullglob
-query_files=("$QUERY_DIR"/*.sql)
-if [ ${#query_files[@]} -eq 0 ]; then
-    echo "Error: No .sql files found in $QUERY_DIR."
+mapfile -t query_files < "$QUERY_LIST"
+STATEMENT_COUNT=${#query_files[@]}
+if [ "$STATEMENT_COUNT" -eq 0 ]; then
+    echo "Error: Query list is empty: $QUERY_LIST" >&2
     exit 1
 fi
+
+STATEMENTS=()
+for source_file in "${query_files[@]}"; do
+    if [[ ! "$source_file" =~ ^[A-Za-z0-9._-]+\.sql$ ]]; then
+        echo "Error: Invalid SQL filename in $QUERY_LIST: $source_file" >&2
+        exit 1
+    fi
+
+    query_file="$QUERY_DIR/$source_file"
+    if [ ! -f "$query_file" ]; then
+        echo "Error: SQL file listed in $QUERY_LIST was not found: $query_file" >&2
+        exit 1
+    fi
+
+    STATEMENTS+=("${source_file%.sql}"$'\t'"$source_file"$'\t1\t'"$query_file")
+done
 
 mkdir -p "$RESULTS_DIR"
 RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
 RUN_RESULTS_DIR="$RESULTS_DIR/${DB_NAME}_${RUN_ID}"
 mkdir -p "$RUN_RESULTS_DIR"
 chmod 777 "$RUN_RESULTS_DIR"
-
-TEMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TEMP_DIR"' EXIT
-STATEMENT_MANIFEST="$TEMP_DIR/statements.tsv"
-
-for query_file in "${query_files[@]}"; do
-    source_file=$(basename "$query_file")
-    query_prefix=${source_file%.sql}
-
-    if [[ ! "$query_prefix" =~ ^[A-Za-z0-9._-]+$ ]]; then
-        echo "Error: SQL filenames may only contain letters, numbers, dots, underscores, and hyphens: $source_file"
-        exit 1
-    fi
-
-    awk -v output_dir="$TEMP_DIR" -v prefix="$query_prefix" -v source_file="$source_file" '
-        function write_statement(    statement_file, query_id) {
-            if (!has_content) {
-                buffer = ""
-                return
-            }
-
-            statement_number++
-            query_id = sprintf("%s_%03d", prefix, statement_number)
-            statement_file = output_dir "/" query_id ".sql"
-            printf "%s", buffer > statement_file
-            close(statement_file)
-            printf "%s\t%s\t%d\t%s\n", query_id, source_file, statement_number, statement_file
-            buffer = ""
-            has_content = 0
-        }
-
-        {
-            buffer = buffer $0 ORS
-            if ($0 !~ /^[[:space:]]*$/) {
-                has_content = 1
-            }
-            if ($0 ~ /;[[:space:]]*$/) {
-                write_statement()
-            }
-        }
-
-        END {
-            if (has_content) {
-                printf "Error: %s contains an unterminated SQL statement after statement %d.\n",
-                    source_file, statement_number > "/dev/stderr"
-                exit 2
-            }
-        }
-    ' "$query_file" >> "$STATEMENT_MANIFEST"
-done
-
-mapfile -t STATEMENTS < "$STATEMENT_MANIFEST"
-STATEMENT_COUNT=${#STATEMENTS[@]}
-if [ "$STATEMENT_COUNT" -eq 0 ]; then
-    echo "Error: No semicolon-terminated SQL statements found in $QUERY_DIR."
-    exit 1
-fi
 
 RAW_CSV="$RUN_RESULTS_DIR/timings.csv"
 SUMMARY_CSV="$RUN_RESULTS_DIR/summary.csv"
@@ -118,13 +138,19 @@ for RUN in {1..6}; do
 
     RUN_START_MS=$(date +%s%3N)
 
-    if ((SKIP_TO_IDX >= STATEMENT_COUNT)); then
-        echo "The selected skip index is at or beyond the number of queries; nothing to run."
+    if ((FROM >= STATEMENT_COUNT)); then
+        echo "The selected --from is at or beyond the number of queries; nothing to run."
         exit 0
     fi
 
-    for ((STATEMENT_INDEX = SKIP_TO_IDX; STATEMENT_INDEX < STATEMENT_COUNT; STATEMENT_INDEX++)); do
+    for ((STATEMENT_INDEX = FROM-1; STATEMENT_INDEX < STATEMENT_COUNT && STATEMENT_INDEX < TO-1; STATEMENT_INDEX++)); do
         QUERY_INDEX=$((STATEMENT_INDEX + 1))
+        
+        if [[ ${#LIST[@]} -gt 0 && " ${LIST[*]} " != *" $QUERY_INDEX "* ]]; then
+            # QUERY_INDEX not in requested --list
+            continue
+        fi
+        
         IFS=$'\t' read -r query_id source_file statement_number statement_file \
             <<< "${STATEMENTS[$STATEMENT_INDEX]}"
         printf '[Run %d/6] Executing query %d/%d: %s (%s, statement %d)\n' \
@@ -166,7 +192,7 @@ for RUN in {1..6}; do
 done
 
 {
-    printf 'rank,query_id,source_file,statement_number,average_ms,min_ms,max_ms,total_ms\n'
+    printf 'rank,query_id,source_file,statement_number,average_ms,min_ms,max_ms,total_ms,percent_of_total\n'
     awk -F, '
         NR == 1 { next }
         {
@@ -180,9 +206,13 @@ done
         }
         END {
             for (key in total) {
-                printf "%s,%s,%s,%.1f,%d,%d,%d\n",
+                sum_average += total[key] / count[key]
+            }
+            for (key in total) {
+                percentage = sum_average > 0 ? (total[key] / count[key]) / sum_average * 100 : 0
+                printf "%s,%s,%s,%.1f,%d,%d,%d,%.2f\n",
                     key, source[key], statement[key], total[key] / count[key],
-                    minimum[key], maximum[key], total[key]
+                    minimum[key], maximum[key], total[key], percentage
             }
         }
     ' "$RAW_CSV" |
@@ -207,12 +237,12 @@ awk -F, -v max_average="$MAX_AVERAGE_MS" -v database="$DB_NAME" -v run_id="$RUN_
         print "</style></head><body>"
         print "<h1>TPC-DS per-query benchmark</h1>"
         printf "<p class=\"meta\">Database: <strong>%s</strong> | Run: %s | Five measured executions per query. Top 10 bars are highlighted.</p>\n", database, run_id
-        print "<table><thead><tr><th>Rank</th><th>Query</th><th>Average (ms)</th><th>Min (ms)</th><th>Max (ms)</th><th class=\"chart\">Relative average</th></tr></thead><tbody>"
+        print "<table><thead><tr><th>Rank</th><th>Query</th><th>Average (ms)</th><th>% of total time</th><th>Min (ms)</th><th>Max (ms)</th><th class=\"chart\">Relative average</th></tr></thead><tbody>"
     }
     NR > 1 {
         width = max_average > 0 ? ($5 / max_average) * 100 : 0
-        printf "<tr><td>%s</td><td>%s</td><td>%.1f</td><td>%s</td><td>%s</td><td class=\"chart\"><div class=\"bar\" style=\"width:%.2f%%\"></div></td></tr>\n",
-            $1, $2, $5, $6, $7, width
+        printf "<tr><td>%s</td><td>%s</td><td>%.1f</td><td>%.2f%%</td><td>%s</td><td>%s</td><td class=\"chart\"><div class=\"bar\" style=\"width:%.2f%%\"></div></td></tr>\n",
+            $1, $2, $5, $9, $6, $7, width
     }
     END {
         print "</tbody></table>"

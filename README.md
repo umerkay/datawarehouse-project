@@ -38,8 +38,8 @@ docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh 1 2
 # Generate the default datasets without parallelism
 docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh --no-parallel
 
-# For development: after optimizing a query, you can regenerate just the query sets (without recompiling dsdgen) with:
-docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh --queryset --no-recompile
+# For development: after optimizing a query, you can regenerate just the query sets (without recompiling dsdgen, and splitting queries into separate files) with:
+docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh --queryset --split-queries --no-recompile
 
 ```
 
@@ -58,7 +58,7 @@ docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01
 
 Execute the benchmark script against the populated database. This script runs directly inside the SQL Server container.
 
-**Protocol:** The script automatically finds all `.sql` files in the `/data/<SCALE_FOLDER>/queryset` folder. It runs the entire suite **6 times**. The first run is discarded to allow for buffer pool warm-up, and the remaining 5 runs are averaged. Execution times are tracked with millisecond precision.
+**Protocol:** The script requires and reads only `/data/<SCALE_FOLDER>/queryset/benchmark.sql`. It runs this benchmark **6 times**. The first run is discarded to allow for buffer pool warm-up, and the remaining 5 runs are averaged. Execution times are tracked with millisecond precision.
 
 **Usage:** `bash /scripts/03_run_benchmark.sh <SCALE_FOLDER> <DB_NAME>`
 
@@ -69,12 +69,21 @@ docker exec -it tpcds_sqlserver bash /scripts/03_run_benchmark.sh 1GB tpcds_01
 
 ### 5. Development: Profile Individual Queries
 
-Use the separate profiling script when you want diagnostic timings for each statement rather than the normal aggregate benchmark. It splits all files in `data/<SCALE_FOLDER>/queryset` at semicolon-terminated statements, runs every statement once for warm-up and five measured times, then ranks the statements by average duration. It logs each query before and after execution; on failure, it reports the query, run, elapsed time, and `sqlcmd` exit code, then stops.
+Use the separate profiling script when you want diagnostic timings for each query rather than the normal aggregate benchmark. It reads one SQL filename per row from `data/<SCALE_FOLDER>/queryset/queries.lst` and executes those pre-split files directly, ignoring unlisted SQL files. It runs each selected query once for warm-up and five measured times, then ranks the queries by average duration. It logs each query before and after execution; on failure, it reports the query, run, elapsed time, and `sqlcmd` exit code.
 
-**Usage:** `bash /scripts/04_profile_queries.sh <SCALE_FOLDER> <DB_NAME>`
+If `queries.lst` is missing, the script prints a warning and exits without profiling. Generate the split queries and list with:
+
+```bash
+docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh --queryset --split-queries --no-recompile
+```
+
+**Usage:** `bash /scripts/04_profile_queries.sh <SCALE_FOLDER> <DB_NAME> [--from INDEX] [--to INDEX] [--list INDEX_1 INDEX_2 ...]`
 
 ```bash
 docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01
+
+# Profile only the first and third entries in queries.lst
+docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01 --list 1 3
 
 ```
 
@@ -84,7 +93,7 @@ Each profiling run creates a timestamped directory under `benchmark_results/` co
 * `summary.csv`: queries ranked from slowest to fastest by their average execution time.
 * `report.html`: a self-contained horizontal bar chart of the ranked averages. Open this file in a browser to identify the slowest queries; the top 10 are highlighted in red.
 
-Query names combine the SQL filename and the one-based statement number. For example, `query_0_003` is the third statement in `data/<SCALE_FOLDER>/queryset/query_0.sql`. Individual timings include the small, approximately constant `sqlcmd` process startup overhead. This profiling script is intended for optimization work; continue to use `03_run_benchmark.sh` for comparable full-suite benchmark results.
+Query names are the listed SQL filenames without the `.sql` extension, for example `query_003` for `data/<SCALE_FOLDER>/queryset/query_003.sql`. Individual timings include the small, approximately constant `sqlcmd` process startup overhead. This profiling script is intended for optimization work; continue to use `03_run_benchmark.sh` for comparable full-suite benchmark results.
 
 ---
 
