@@ -56,7 +56,7 @@ docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01
 
 ### 4. Apply the analytical indexing strategy
 
-For an optimized comparison, load the same scale factor into a separate database and apply the reproducible strategy in `scripts/indexing_strategy.sql`. Index creation and statistics updates happen before benchmarking and are not included in query timings.
+For an optimized comparison, load the same scale factor into a separate database and apply the reproducible strategy in `scripts/indexing_strategy.sql`. The strategy uses nonclustered columnstore indexes because the schema already creates clustered primary-key indexes on the fact tables. Index creation and statistics updates happen before benchmarking and are not included in query timings.
 
 ```bash
 docker exec -it tpcds_sqlserver \

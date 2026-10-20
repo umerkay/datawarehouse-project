@@ -2,8 +2,9 @@
     Final analytical indexing strategy for the TPC-DS SQL Server workload.
 
     Apply after bulk loading and referential-integrity creation. The clustered
-    columnstore indexes target the large fact tables; the nonclustered indexes
-    support selective dimension joins and inventory access.
+    primary keys created by the schema prevent clustered columnstore indexes,
+    so nonclustered columnstore indexes target the large fact tables. The
+    nonclustered rowstore indexes support selective dimension joins.
 */
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
@@ -11,52 +12,73 @@ SET XACT_ABORT ON;
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes
-    WHERE name = N'CCI_store_sales'
+    WHERE name = N'NCCI_store_sales'
       AND object_id = OBJECT_ID(N'dbo.store_sales')
 )
 BEGIN
-    PRINT 'Creating CCI_store_sales';
-    CREATE CLUSTERED COLUMNSTORE INDEX CCI_store_sales
-        ON dbo.store_sales;
+    PRINT 'Creating NCCI_store_sales';
+    CREATE NONCLUSTERED COLUMNSTORE INDEX NCCI_store_sales
+        ON dbo.store_sales (
+            ss_sold_date_sk, ss_sold_time_sk, ss_item_sk, ss_customer_sk,
+            ss_store_sk, ss_ticket_number, ss_quantity, ss_list_price,
+            ss_sales_price, ss_ext_sales_price, ss_ext_list_price,
+            ss_ext_wholesale_cost, ss_ext_discount_amt, ss_net_paid,
+            ss_net_paid_inc_tax, ss_net_profit
+        );
 END;
 GO
 
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes
-    WHERE name = N'CCI_catalog_sales'
+    WHERE name = N'NCCI_catalog_sales'
       AND object_id = OBJECT_ID(N'dbo.catalog_sales')
 )
 BEGIN
-    PRINT 'Creating CCI_catalog_sales';
-    CREATE CLUSTERED COLUMNSTORE INDEX CCI_catalog_sales
-        ON dbo.catalog_sales;
+    PRINT 'Creating NCCI_catalog_sales';
+    CREATE NONCLUSTERED COLUMNSTORE INDEX NCCI_catalog_sales
+        ON dbo.catalog_sales (
+            cs_sold_date_sk, cs_sold_time_sk, cs_item_sk,
+            cs_bill_customer_sk, cs_ship_customer_sk, cs_quantity,
+            cs_list_price, cs_sales_price, cs_ext_sales_price,
+            cs_ext_list_price, cs_ext_wholesale_cost, cs_ext_discount_amt,
+            cs_net_profit
+        );
 END;
 GO
 
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes
-    WHERE name = N'CCI_web_sales'
+    WHERE name = N'NCCI_web_sales'
       AND object_id = OBJECT_ID(N'dbo.web_sales')
 )
 BEGIN
-    PRINT 'Creating CCI_web_sales';
-    CREATE CLUSTERED COLUMNSTORE INDEX CCI_web_sales
-        ON dbo.web_sales;
+    PRINT 'Creating NCCI_web_sales';
+    CREATE NONCLUSTERED COLUMNSTORE INDEX NCCI_web_sales
+        ON dbo.web_sales (
+            ws_sold_date_sk, ws_sold_time_sk, ws_item_sk,
+            ws_bill_customer_sk, ws_ship_customer_sk, ws_quantity,
+            ws_list_price, ws_sales_price, ws_ext_sales_price,
+            ws_ext_list_price, ws_ext_wholesale_cost, ws_ext_discount_amt,
+            ws_net_profit
+        );
 END;
 GO
 
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes
-    WHERE name = N'CCI_store_returns'
+    WHERE name = N'NCCI_store_returns'
       AND object_id = OBJECT_ID(N'dbo.store_returns')
 )
 BEGIN
-    PRINT 'Creating CCI_store_returns';
-    CREATE CLUSTERED COLUMNSTORE INDEX CCI_store_returns
-        ON dbo.store_returns;
+    PRINT 'Creating NCCI_store_returns';
+    CREATE NONCLUSTERED COLUMNSTORE INDEX NCCI_store_returns
+        ON dbo.store_returns (
+            sr_returned_date_sk, sr_item_sk, sr_customer_sk,
+            sr_store_sk, sr_ticket_number, sr_net_loss
+        );
 END;
 GO
 
