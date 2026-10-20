@@ -54,7 +54,21 @@ docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01
 
 ```
 
-### 4. Run the Benchmark
+### 4. Apply the analytical indexing strategy
+
+For an optimized comparison, load the same scale factor into a separate database and apply the reproducible strategy in `scripts/indexing_strategy.sql`. Index creation and statistics updates happen before benchmarking and are not included in query timings.
+
+```bash
+docker exec -it tpcds_sqlserver \
+  bash /scripts/02_load_data.sh 1GB tpcds_01_indexed
+
+docker exec -it tpcds_sqlserver \
+  bash /scripts/05_apply_indexing.sh tpcds_01_indexed
+```
+
+The strategy is idempotent and can be reapplied safely. Keep an unindexed database, such as `tpcds_01`, for baseline comparisons.
+
+### 5. Run the Benchmark
 
 Execute the benchmark script against the populated database. This script runs directly inside the SQL Server container.
 
@@ -67,7 +81,7 @@ docker exec -it tpcds_sqlserver bash /scripts/03_run_benchmark.sh 1GB tpcds_01
 
 ```
 
-### 5. Development: Profile Individual Queries
+### 6. Development: Profile Individual Queries
 
 Use the separate profiling script when you want diagnostic timings for each query rather than the normal aggregate benchmark. It reads one SQL filename per row from `data/<SCALE_FOLDER>/queryset/queries.lst` and executes those pre-split files directly, ignoring unlisted SQL files. It runs each selected query once for warm-up and five measured times, then ranks the queries by average duration. It logs each query before and after execution; on failure, it reports the query, run, elapsed time, and `sqlcmd` exit code.
 
