@@ -87,6 +87,8 @@ docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01
 
 ```
 
+**SQL Server compatibility note:** Q23 (generated from `query22.tpl`) casts `inv_quantity_on_hand` to `decimal(19,4)` before `AVG`; without this cast, SQL Server reports an integer overflow for the 5GB and 10GB datasets.
+
 Each profiling run creates a timestamped directory under `benchmark_results/` containing:
 
 * `timings.csv`: every measured execution time for each query.

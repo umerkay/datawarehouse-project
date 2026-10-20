@@ -39,7 +39,7 @@ define DMS = random(1176,1224,uniform);
              ,i_brand
              ,i_class
              ,i_category
-             ,avg(inv_quantity_on_hand) qoh
+             ,avg(cast(inv_quantity_on_hand as decimal(19,4))) qoh
        from inventory
            ,date_dim
            ,item
