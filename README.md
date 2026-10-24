@@ -93,6 +93,8 @@ docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh --queryset --s
 
 **Usage:** `bash /scripts/04_profile_queries.sh <SCALE_FOLDER> <DB_NAME> [--from INDEX] [--to INDEX] [--list INDEX_1 INDEX_2 ...]`
 
+Query indices start at 1, and both range endpoints are inclusive. `--list` overrides the range. If a query fails, profiling stops immediately: its failed execution is not added to `timings.csv`, and no final summary or HTML report is generated for that incomplete run.
+
 ```bash
 docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01
 

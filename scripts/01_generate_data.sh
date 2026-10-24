@@ -91,6 +91,7 @@ for size in "${SIZES[@]}"; do
         -QUALIFY Y \
         -SCALE "${size}" \
         -DIALECT sqlserver \
+        -RNGSEED 56 \
         -OUTPUT_DIR "$queryset_dir"
 
     # Assuming generated file is named query_0.sql containing all queries

@@ -1,8 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-SCALE_FOLDER=$1
-DB_NAME=${2:-}
+if [[ $# -lt 2 || -z "$1" || -z "$2" ]]; then
+    echo "Usage: $0 <SCALE_FOLDER> <DB_NAME> [--from INDEX] [--to INDEX] [--list INDEX ...]" >&2
+    exit 1
+fi
 
 # Required positional parameters
 SCALE_FOLDER=$1
@@ -11,14 +13,14 @@ shift 2
 
 # Optional flags
 _MAX_INT=2147483647
-FROM=0
+FROM=1
 TO=$_MAX_INT
 LIST=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --from)
-            if [[ $# -lt 2 || "$2" == --* || $2 < 1 ]]; then
+            if [[ $# -lt 2 || ! "$2" =~ ^[1-9][0-9]{0,8}$ ]]; then
                 echo "Error: --from requires a value greater than 0" >&2
                 exit 1
             fi
@@ -26,7 +28,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --to)
-            if [[ $# -lt 2 || "$2" == --* || $2 < 1 ]]; then
+            if [[ $# -lt 2 || ! "$2" =~ ^[1-9][0-9]{0,8}$ ]]; then
                 echo "Error: --to requires a value greater than 0" >&2
                 exit 1
             fi
@@ -35,7 +37,15 @@ while [[ $# -gt 0 ]]; do
             ;;
         --list)
             shift
+            if [[ $# -eq 0 || "$1" == --* ]]; then
+                echo "Error: --list requires at least one positive integer index" >&2
+                exit 1
+            fi
             while [[ $# -gt 0 && "$1" != --* ]]; do
+                if [[ ! "$1" =~ ^[1-9][0-9]{0,8}$ ]]; then
+                    echo "Error: Invalid query index: $1" >&2
+                    exit 1
+                fi
                 LIST+=("$1")
                 shift
             done
@@ -54,7 +64,7 @@ fi
 
 # If list is provided, reset from/to to defaults
 if [[ ${#LIST[@]} -gt 0 ]]; then
-    FROM=0
+    FROM=1
     TO=$_MAX_INT
 fi
 
@@ -92,6 +102,13 @@ if [ "$STATEMENT_COUNT" -eq 0 ]; then
     echo "Error: Query list is empty: $QUERY_LIST" >&2
     exit 1
 fi
+
+for query_index in "${LIST[@]}"; do
+    if ((query_index > STATEMENT_COUNT)); then
+        echo "Error: Query index $query_index exceeds the number of queries ($STATEMENT_COUNT)." >&2
+        exit 1
+    fi
+done
 
 STATEMENTS=()
 for source_file in "${query_files[@]}"; do
@@ -138,12 +155,12 @@ for RUN in {1..6}; do
 
     RUN_START_MS=$(date +%s%3N)
 
-    if ((FROM >= STATEMENT_COUNT)); then
+    if ((FROM > STATEMENT_COUNT)); then
         echo "The selected --from is at or beyond the number of queries; nothing to run."
         exit 0
     fi
 
-    for ((STATEMENT_INDEX = FROM-1; STATEMENT_INDEX < STATEMENT_COUNT && STATEMENT_INDEX < TO-1; STATEMENT_INDEX++)); do
+    for ((STATEMENT_INDEX = FROM-1; STATEMENT_INDEX < STATEMENT_COUNT && STATEMENT_INDEX < TO; STATEMENT_INDEX++)); do
         QUERY_INDEX=$((STATEMENT_INDEX + 1))
         
         if [[ ${#LIST[@]} -gt 0 && " ${LIST[*]} " != *" $QUERY_INDEX "* ]]; then
@@ -169,8 +186,8 @@ for RUN in {1..6}; do
             printf >&2 '[Run %d/6] FAILED %s (%s, statement %d) after %dms; sqlcmd exit code: %d\n' \
                 "$RUN" "$query_id" "$source_file" "$statement_number" "$DURATION_MS" "$SQLCMD_STATUS"
             echo "Contents of query file:"
-            cat $statement_file
-            #exit "$SQLCMD_STATUS"
+            cat "$statement_file"
+            exit "$SQLCMD_STATUS"
         fi
 
         if [ "$RUN" -gt 1 ]; then

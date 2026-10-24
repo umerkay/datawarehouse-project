@@ -35,7 +35,7 @@ for RUN in {1..6}; do
     # Record time in milliseconds
     START_TIME=$(date +%s%3N)
 
-    /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASS" -C -d $DB_NAME -i "$QUERY_FILE" -o /dev/null
+    /opt/mssql-tools18/bin/sqlcmd -b -S localhost -U sa -P "$SA_PASS" -C -d $DB_NAME -i "$QUERY_FILE" -o /dev/null
 
     # Record end time in milliseconds
     END_TIME=$(date +%s%3N)
