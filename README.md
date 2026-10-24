@@ -113,6 +113,25 @@ Each profiling run creates a timestamped directory under `benchmark_results/` co
 
 Query names are the listed SQL filenames without the `.sql` extension, for example `query_003` for `data/<SCALE_FOLDER>/queryset/query_003.sql`. Individual timings include the small, approximately constant `sqlcmd` process startup overhead. This profiling script is intended for optimization work; continue to use `03_run_benchmark.sh` for comparable full-suite benchmark results.
 
+### 7. Development: Visualize Join Relationships Without Running Queries
+
+The separate [static join-graph tool](tools/join_graph/README.md) analyzes only the SQL files listed in `data/1GB/queryset/queries.lst`, using the bundled schema to resolve column names. It does not connect to SQL Server or change indexes.
+
+All generated graphs, XML plans, CSV/JSON reports and diagnostic dumps belong under the **Git-ignored** `tools/join_graph/generated/` directory; only tool source, tests, samples and documentation should be committed. Open the generated [interactive graph](tools/join_graph/generated/static/join_graph.html) in a browser, or review the [static SVG](tools/join_graph/generated/static/join_graph.svg). Edge details show joined attributes, distinct-query counts, total predicate occurrences and supporting query IDs. CSV/JSON exports and a [coverage and next-steps summary](tools/join_graph/generated/static/README.md) make the results auditable; unresolved CTE/derived relationships are flagged rather than guessed.
+
+To regenerate from the repository root (Python 3.10+):
+
+```bash
+python3 -m venv tools/join_graph/.venv
+source tools/join_graph/.venv/bin/activate
+python -m pip install -r tools/join_graph/requirements.txt
+python tools/join_graph/analyze_workload.py --fail-on-parse-errors
+```
+
+Use the graph to shortlist index experiments, then validate those experiments with execution plans and the existing baseline/indexed profiling and benchmark workflow. Join frequency alone does not establish index benefit.
+
+Estimated-plan companions are available for the [baseline database](tools/join_graph/generated/plans-baseline/join_graph.html) and [indexed database](tools/join_graph/generated/plans-indexed/join_graph.html). They compile without executing the workload. Actual-plan graphs for [baseline](tools/join_graph/generated/actual-baseline/join_graph.html) and [indexed](tools/join_graph/generated/actual-indexed/join_graph.html) add measured elapsed/CPU time and estimated-versus-actual join row deviations, with explicit timeouts. **Actual collection executes SELECTs once with deadlines**; it is separate from the repeated benchmark protocol. SQL Server optimizer cost is not milliseconds, so no misleading cost-to-time percentage is calculated. See the [tool instructions](tools/join_graph/README.md) for regeneration commands, metric definitions and limitations.
+
 ---
 
 ## Resetting the Environment

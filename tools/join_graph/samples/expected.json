@@ -1,0 +1,13 @@
+{
+  "nodes": {
+    "date_dim": 1,
+    "item": 3,
+    "store_sales": 2
+  },
+  "edges": {
+    "date_dim.d_date_sk = store_sales.ss_sold_date_sk": [1, 1],
+    "item.i_item_sk = store_sales.ss_item_sk": [2, 3],
+    "item.i_item_sk < item.i_item_sk": [1, 1]
+  },
+  "table_pairs": 3
+}

@@ -1,0 +1,9 @@
+__pycache__/
+.venv/
+output/
+generated/
+# Legacy/custom output locations from earlier versions.
+plans-baseline/
+plans-indexed/
+plan-comparison/
+sample-output/

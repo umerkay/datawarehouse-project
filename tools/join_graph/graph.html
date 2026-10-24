@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TPC-DS workload join graph</title>
+<style>
+*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:#f8fafc;color:#172033;font:14px system-ui,sans-serif}
+header{padding:16px 22px;background:#14243c;color:white}h1{font-size:23px;margin:0 0 7px}
+header p{margin:4px 0;color:#cbd5e1}a{color:#1463bd}
+.toolbar{padding:12px 20px;display:flex;gap:15px;flex-wrap:wrap;align-items:center;border-bottom:1px solid #cbd5e1}
+label{display:flex;gap:7px;align-items:center}input,select,button{font:inherit;padding:6px;border:1px solid #94a3b8;border-radius:5px}
+input[type=number]{width:72px}button{cursor:pointer;background:white}
+main{display:grid;grid-template-columns:minmax(480px,1fr) 370px;min-height:740px}
+#graph{width:100%;height:790px;touch-action:none;cursor:grab}#graph:active{cursor:grabbing}
+aside{padding:15px;border-left:1px solid #cbd5e1;overflow-wrap:anywhere;background:white;max-height:790px;overflow:auto}
+h2{font-size:18px}h3{font-size:15px;margin:16px 0 6px}pre{white-space:pre-wrap;font-size:12px;background:#eef2f7;padding:10px}
+.legend{padding:10px 20px;color:#475569}.dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:5px}
+.edge{cursor:pointer;fill:none;stroke:#8095ad;opacity:.45;pointer-events:stroke}
+.edge:hover,.edge.selected{stroke:#dc2626!important;opacity:1!important}
+.node{cursor:pointer}.node:hover circle,.node:focus circle{stroke:#dc2626;stroke-width:4}
+.node text{font:13px system-ui;paint-order:stroke;stroke:#f8fafc;stroke-width:4;pointer-events:none}
+.node:focus{outline:none}.edge-label{font:11px system-ui;paint-order:stroke;stroke:#f8fafc;stroke-width:4;pointer-events:none}
+table{border-collapse:collapse;width:100%;font-size:12px}th,td{padding:7px;border-bottom:1px solid #e2e8f0;text-align:left}
+tbody tr{cursor:pointer}tbody tr:hover{background:#eff6ff}.note{color:#64748b;font-size:12px}
+#query-analysis{padding:0 20px 20px}#query-analysis .query-scroll{max-height:340px;overflow:auto}
+#status{padding:0 20px;font-weight:600}#query-links a{display:inline-block;margin:4px 8px 4px 0}
+@media(max-width:900px){main{display:block}aside{border-left:0;max-height:none}#graph{height:620px}}
+</style>
+<header>
+  <h1>TPC-DS workload join graph</h1>
+  <p id="coverage"></p>
+  <p>Static syntax evidence, not execution cost or an automatic index recommendation. Fully offline; no database or network required.</p>
+</header>
+<section class="toolbar" aria-label="Graph filters">
+  <label>View <select id="mode"><option value="pairs">Table pairs</option><option value="columns">Joined attributes</option></select></label>
+  <label>Minimum queries <input id="minimum" type="number" min="0" value="__MINIMUM__"></label>
+  <label>Table search <input id="search" type="search" placeholder="e.g. store_sales"></label>
+  <label id="uncertain-control"><input id="uncertain" type="checkbox">Include non-physical endpoints</label>
+  <label><input id="labels" type="checkbox">Edge counts</label>
+  <label id="plan-sort-control" hidden>Rank by <select id="rank-mode"><option value="queries">Query count</option><option value="estimated">Max estimated output rows</option><option id="error-sort" value="error" hidden>Worst row estimate error</option></select></label>
+  <button id="reset">Reset view</button>
+  <a href="README.md">Results &amp; next steps</a>
+</section>
+<div class="legend">
+  <span class="dot" style="background:#fbbf24"></span>Fact
+  &nbsp; <span class="dot" style="background:#93c5fd"></span>Dimension/other physical table
+  &nbsp; <span class="dot" style="background:#d8b4fe"></span>Unresolved CTE/derived
+  &nbsp; Node size = distinct referencing queries; edge width = distinct joining queries.
+  Click edges/nodes for attributes and evidence. Scroll to zoom; drag background to pan.
+</div>
+<p id="status" role="status"></p>
+<main>
+  <svg id="graph" viewBox="0 0 1200 900" aria-label="Interactive workload join graph">
+    <g id="viewport"><g id="edges"></g><g id="nodes"></g></g>
+  </svg>
+  <aside>
+    <section id="details" aria-live="polite">
+      <h2>Select a table or relationship</h2>
+      <p>Use table pairs for the overview, then joined attributes to distinguish column pairs. Hover for counts; click for complete query evidence.</p>
+    </section>
+    <h3 id="ranking-title">Visible relationships (highest query count first)</h3>
+    <p class="note">Counts are distinct queries, not repeated predicate occurrences. All selected queries, including failures, form the frequency denominator.</p>
+    <table><thead><tr><th>Relationship</th><th>Queries</th><th id="plan-rows-heading" hidden>Max est. rows</th><th id="actual-error-heading" hidden>Worst error</th></tr></thead><tbody id="ranking"></tbody></table>
+    <p><a href="join_edges.csv">Column CSV</a> &middot; <a href="table_pair_edges.csv">Table-pair CSV</a>
+      &middot; <a href="coverage_report.json">Coverage</a> &middot; <a href="unresolved_joins.csv">Unresolved</a></p>
+    <p id="plan-downloads" hidden><a href="plan_edge_metrics.csv">Row-estimate metrics</a>
+      &middot; <a href="join_operators.csv">All join operators</a></p>
+  </aside>
+</main>
+<section id="query-analysis" hidden>
+  <h2>Query runtime and estimation accuracy</h2>
+  <p>One bounded diagnostic execution per query, not a repeated benchmark. Elapsed time and optimizer cost have different units and cannot be divided to obtain a meaningful cost error. Row errors compare estimates within the actual plan with measured output per invocation, including unmapped joins.</p>
+  <label>Sort queries <select id="query-sort"><option value="error">Worst row estimate error</option><option value="elapsed">Measured server elapsed time</option><option value="query">Query ID</option></select></label>
+  <p><a href="query_metrics.csv">Download query metrics</a> &middot; <a href="failures.csv">Failures and timeouts</a></p>
+  <div class="query-scroll"><table><thead><tr><th>Query</th><th>Status</th><th>Estimated cost (optimizer units)</th><th>Actual elapsed ms</th><th>Worst join row error</th></tr></thead><tbody id="query-ranking"></tbody></table></div>
+</section>
+<script id="graph-data" type="application/json">__GRAPH_DATA__</script>
+<script>
+"use strict";
+const data = JSON.parse(document.getElementById("graph-data").textContent);
+const $ = id => document.getElementById(id);
+const ns = "http://www.w3.org/2000/svg";
+const fact = n => /(_sales|_returns)$/.test(n.table) || n.table.split(".").pop() === "inventory";
+let selected = null, zoom = 1, panX = 0, panY = 0, dragging = null;
+const c = data.coverage;
+const actual = data.plan_evidence?.mode==="actual";
+$("coverage").textContent = `${c.discovered_queries} selected queries | ${c.parsed_queries} parsed (${c.partial_queries} partial) | ${c.failed_queries} failed | ${c.physical_tables} physical tables | ${c.physical_column_relationships} physical attribute relationships | ${c.unresolved_records} unresolved records`;
+if (data.plan_evidence) {
+  $("plan-sort-control").hidden=false;
+  $("plan-rows-heading").hidden=false;
+  $("plan-downloads").hidden=false;
+  $("uncertain-control").hidden=true;
+  document.title = `Estimated plan join graph - ${data.plan_evidence.database}`;
+  document.querySelector("h1").textContent = `Estimated plan join graph: ${data.plan_evidence.database}`;
+  document.querySelector("header p:last-child").textContent = `SHOWPLAN_XML estimates only; workload queries were not executed. ${c.join_operator_count} join operators, ${c.unmapped_join_operator_count} without mapped physical-column pairs. Click edges for strategies and estimated rows.`;
+  if(actual){
+    $("query-analysis").hidden=false;$("error-sort").hidden=false;$("actual-error-heading").hidden=false;
+    document.title=`Actual plan join graph - ${data.plan_evidence.database}`;
+    document.querySelector("h1").textContent=`Actual plan join graph: ${data.plan_evidence.database}`;
+    document.querySelector("header p:last-child").textContent=`SELECTs executed once with deadlines. ${c.timed_out_queries} timed out; failures have no actual plan. Click edges for row estimate deviations, then inspect query runtime below.`;
+    $("rank-mode").value="error";
+  }
+}
+const number=v=>v===null||v===undefined?"unavailable":Number(v).toLocaleString(undefined,{maximumFractionDigits:3});
+function errorText(factor,unbounded){return unbounded?"unbounded (zero vs nonzero)":factor===null||factor===undefined?"unavailable":`${number(factor)}×`;}
+function element(tag, attrs, parent, text) {
+  const e = document.createElementNS(ns, tag);
+  for (const [k,v] of Object.entries(attrs)) e.setAttribute(k,v);
+  if (text !== undefined) e.textContent = text;
+  parent.appendChild(e);
+  return e;
+}
+function text(tag, content, parent=$("details")) {
+  const e = document.createElement(tag); e.textContent=content; parent.appendChild(e); return e;
+}
+function queryLinks(ids) {
+  text("h3", `Supporting queries (${ids.length})`);
+  const container = document.createElement("div"); container.id="query-links";
+  for (const id of ids) {
+    const a = document.createElement("a"); a.textContent=id;
+    a.href=data.query_reports[id]; a.target="_blank"; a.rel="noopener";
+    container.appendChild(a);
+    if (data.plan_evidence) {
+      for (const [i,path] of data.plan_evidence.plan_files[id].entries()) {
+        const plan=document.createElement("a");plan.href=path;plan.textContent=`[XML ${i+1}]`;
+        plan.target="_blank";plan.rel="noopener";container.appendChild(plan);
+      }
+    }
+  }
+  $("details").appendChild(container);
+}
+function showEdge(edge) {
+  selected = edge.edge_id;
+  $("details").replaceChildren();
+  text("h2", `${edge.left_table} -- ${edge.right_table}`);
+  text("p", `${edge.query_count} distinct queries (${(100*edge.query_frequency).toFixed(1)}%); ${edge.occurrence_count} predicate occurrences`);
+  text("pre", edge.joined_columns ? edge.joined_columns.join("\n") : edge.label);
+  text("p", `Join types (occurrences): ${JSON.stringify(edge.join_type_summary)}. Resolution: ${edge.resolution_status}. Self-join: ${edge.self_join}.`);
+  if (edge.conditional_occurrence_count) text("p", `${edge.conditional_occurrence_count} occurrences under OR/NOT: relationships are syntactic, not guaranteed to hold for every row.`);
+  if (edge.plan_metrics) {
+    const m=edge.plan_metrics;
+    text("h3","Estimated join-operator output rows");
+    text("p",`Min ${number(m.estimated_rows_min)} / max ${number(m.estimated_rows_max)} / avg ${number(m.estimated_rows_avg)} across ${m.operator_count} unique operators.`);
+    text("p",`Strategies: ${JSON.stringify(m.physical_operator_summary)}.`);
+    text("p","These are optimizer output estimates for whole operators, possibly joining intermediate results. They are not actual rows, pairwise selectivity or repeated execution samples. Multiple attribute edges may share one operator.");
+    text("h3","Operator evidence IDs");
+    text("pre",m.operator_ids.join("\n"));
+    if(actual){
+      text("h3","Measured rows versus estimates");
+      text("p",`Actual output per invocation min ${number(m.actual_rows_per_execution_min)} / max ${number(m.actual_rows_per_execution_max)} / avg ${number(m.actual_rows_per_execution_avg)}.`);
+      text("p",`Worst row estimate error: ${errorText(m.row_error_factor_max,m.row_error_unbounded_count>0)}. ${m.executed_operator_count||0} executed operators; ${m.not_executed_operator_count||0} unexecuted branches; ${m.underestimated_operator_count||0} underestimated, ${m.overestimated_operator_count||0} overestimated.`);
+      text("p","Compare individual operator actual/estimate pairs in the query report, not ratios of aggregated averages. Zero-execution branches are excluded. Estimates and actuals come from the same executed plan, not a historical NodeId match.");
+      text("h3","Supporting query runtime");
+      for(const q of data.query_metrics.filter(q=>edge.query_ids.includes(q.query_id))){
+        text("p",`${q.query_id}: ${number(q.actual_elapsed_ms)} ms server elapsed; estimated cost ${number(q.estimated_cost)} optimizer units. Query-wide worst join error ${errorText(q.worst_row_error_factor,q.worst_row_error_unbounded)}.`);
+      }
+    }
+  }
+  if (edge.resolution_status !== "exact") text("p","Non-physical endpoints are query-local CTE/derived names. Do not use these names as physical index targets.");
+  queryLinks(edge.query_ids);
+  draw();
+}
+function showNode(node) {
+  $("details").replaceChildren();
+  text("h2",node.table);
+  text("p",`${node.reference_type}; ${node.query_count} referencing queries; ${node.join_query_count} joining queries; ${node.join_occurrence_count} join occurrences; ${node.degree} distinct other neighbors.`);
+  queryLinks(data.query_table_references.filter(r=>r.table===node.table).map(r=>r.query_id));
+}
+function draw() {
+  const minimum = Math.max(0,Number($("minimum").value)||0);
+  const search = $("search").value.toLowerCase().trim(), uncertain=$("uncertain").checked;
+  const source = $("mode").value==="pairs" ? data.table_pairs : data.edges;
+  const edges = source.filter(e => e.query_count>=minimum && (uncertain || e.resolution_status==="exact")
+    && (!search || e.left_table.toLowerCase().includes(search) || e.right_table.toLowerCase().includes(search)));
+  const incident = new Set(edges.flatMap(e=>[e.left_table,e.right_table]));
+  const nodes = data.nodes.filter(n => (uncertain || n.reference_type==="physical")
+    && (!search || incident.has(n.table) || n.table.toLowerCase().includes(search)));
+  const positions = new Map();
+  const rings = [nodes.filter(n=>n.reference_type==="physical" && fact(n)),
+    nodes.filter(n=>n.reference_type==="physical" && !fact(n)), nodes.filter(n=>n.reference_type!=="physical")];
+  rings.forEach((ring,index)=>ring.forEach((node,i)=>{
+    const angle=2*Math.PI*i/ring.length-Math.PI/2, radius=[190,350,420][index];
+    positions.set(node.table, [600+radius*Math.cos(angle),450+radius*Math.sin(angle)]);
+  }));
+  $("edges").replaceChildren(); $("nodes").replaceChildren(); $("ranking").replaceChildren();
+  const parallel = new Map();
+  for (const edge of edges) {
+    const [x1,y1]=positions.get(edge.left_table), [x2,y2]=positions.get(edge.right_table);
+    const key=JSON.stringify([edge.left_table,edge.right_table]), index=parallel.get(key)||0;
+    parallel.set(key,index+1);
+    const dx=x2-x1,dy=y2-y1,length=Math.hypot(dx,dy)||1, offset=index*26;
+    const mx=(x1+x2)/2-dy/length*offset, my=(y1+y2)/2+dx/length*offset;
+    const path=edge.self_join ? `M${x1-10},${y1} C${x1-120-index*15},${y1-140} ${x1+120+index*15},${y1-140} ${x1+10},${y1}`
+      : `M${x1},${y1} Q${mx},${my} ${x2},${y2}`;
+    const e=element("path",{d:path,class:`edge${selected===edge.edge_id?" selected":""}`,
+      "stroke-width":1+Math.sqrt(edge.query_count), "data-edge-id":edge.edge_id,
+      ...(edge.resolution_status!=="exact"?{"stroke-dasharray":"7 5"}:{})},$("edges"));
+    const metrics=edge.plan_metrics ? `\nEstimated output rows min/max/avg: ${edge.plan_metrics.estimated_rows_min} / ${edge.plan_metrics.estimated_rows_max} / ${edge.plan_metrics.estimated_rows_avg}\nStrategies: ${JSON.stringify(edge.plan_metrics.physical_operator_summary)}` : "";
+    element("title",{},e,`${edge.joined_columns ? edge.joined_columns.join("\n") : edge.label}\n${edge.query_count} distinct queries; ${edge.occurrence_count} occurrences\n${JSON.stringify(edge.join_type_summary)}${metrics}\nExamples: ${edge.example_query_ids.join(", ")}`);
+    e.addEventListener("click",()=>showEdge(edge));
+    if($("labels").checked) element("text",{x:mx,y:my,class:"edge-label"},$("edges"),edge.query_count);
+  }
+  for (const node of nodes) {
+    const [x,y]=positions.get(node.table), radius=12+1.8*Math.sqrt(node.query_count);
+    const group=element("g",{class:"node",transform:`translate(${x},${y})`,tabindex:0,
+      role:"button","aria-label":`${node.table}: ${node.query_count} queries`,"data-table":node.table},$("nodes"));
+    const fill=node.reference_type!=="physical"?"#d8b4fe":fact(node)?"#fbbf24":"#93c5fd";
+    element("circle",{r:radius,fill,stroke:"#334155","stroke-width":1.5},group);
+    element("title",{},group,`${node.table}\n${node.query_count} referencing queries; ${node.join_query_count} joining queries\n${node.join_occurrence_count} join occurrences; degree ${node.degree}`);
+    const shortName=node.table.startsWith("@") ? node.table.slice(node.table.lastIndexOf(":")+1) : node.table;
+    element("text",{y:radius+16,"text-anchor":"middle"},group,shortName);
+    group.addEventListener("click",()=>showNode(node));
+    group.addEventListener("keydown",event=>{if(event.key==="Enter")showNode(node);});
+  }
+  const rankValue=e=>actual && $("rank-mode").value==="error"
+    ? (e.plan_metrics.row_error_unbounded_count ? Number.POSITIVE_INFINITY : e.plan_metrics.row_error_factor_max ?? -1)
+    : data.plan_evidence && $("rank-mode").value==="estimated" ? (e.plan_metrics.estimated_rows_max ?? -1) : e.query_count;
+  $("ranking-title").textContent=actual && $("rank-mode").value==="error"
+    ? "Visible relationships (worst row estimate error first)" : data.plan_evidence && $("rank-mode").value==="estimated"
+      ? "Visible relationships (highest max estimated rows first)" : "Visible relationships (highest query count first)";
+  for (const edge of [...edges].sort((a,b)=>(rankValue(b)>rankValue(a)?1:rankValue(b)<rankValue(a)?-1:0) || a.edge_id.localeCompare(b.edge_id))) {
+    const tr=document.createElement("tr");
+    const name=text("td",edge.label || `${edge.left_table} -- ${edge.right_table}`,tr);
+    name.title=edge.joined_columns ? edge.joined_columns.join("\n") : edge.label;
+    text("td",String(edge.query_count),tr);
+    if(data.plan_evidence)text("td",edge.plan_metrics.estimated_rows_max===null?"n/a":
+      Number(edge.plan_metrics.estimated_rows_max).toLocaleString(undefined,{maximumFractionDigits:1}),tr);
+    if(actual)text("td",errorText(edge.plan_metrics.row_error_factor_max,edge.plan_metrics.row_error_unbounded_count>0),tr);
+    tr.addEventListener("click",()=>showEdge(edge)); $("ranking").appendChild(tr);
+  }
+  $("status").textContent=`Showing ${nodes.length} nodes and ${edges.length} ${$("mode").value==="pairs"?"table-pair":"column-level"} edges at minimum ${minimum} queries. CSV/JSON/DOT retain the complete unfiltered data.`;
+}
+function transform() {$("viewport").setAttribute("transform",`translate(${panX},${panY}) scale(${zoom})`);}
+function point(event) {
+  const p=$("graph").createSVGPoint();p.x=event.clientX;p.y=event.clientY;
+  return p.matrixTransform($("graph").getScreenCTM().inverse());
+}
+$("graph").addEventListener("wheel",event=>{
+  event.preventDefault();
+  const p=point(event),next=Math.min(5,Math.max(.3,zoom*(event.deltaY<0?1.12:.89)));
+  panX=p.x-(p.x-panX)*next/zoom;panY=p.y-(p.y-panY)*next/zoom;zoom=next;transform();
+},{passive:false});
+$("graph").addEventListener("pointerdown",event=>{
+  if(event.target.closest(".node,.edge"))return;
+  dragging=point(event);$("graph").setPointerCapture(event.pointerId);
+});
+$("graph").addEventListener("pointermove",event=>{
+  if(!dragging)return;
+  const p=point(event);panX+=p.x-dragging.x;panY+=p.y-dragging.y;dragging=p;transform();
+});
+for(const event of ["pointerup","pointercancel"])$("graph").addEventListener(event,()=>dragging=null);
+for(const id of ["minimum","search","mode","uncertain","labels","rank-mode"])$(id).addEventListener("input",draw);
+$("reset").addEventListener("click",()=>{zoom=1;panX=panY=0;transform();});
+function drawQueries(){
+  if(!actual)return;
+  $("query-ranking").replaceChildren();
+  const value=q=>$("query-sort").value==="elapsed" ? q.actual_elapsed_ms ?? -1
+    : q.worst_row_error_unbounded ? Number.POSITIVE_INFINITY : q.worst_row_error_factor ?? -1;
+  const queries=[...data.query_metrics].sort((a,b)=>($("query-sort").value==="query"?0:
+    value(a)>value(b)?-1:value(a)<value(b)?1:0)||a.query_id.localeCompare(b.query_id));
+  for(const q of queries){
+    const tr=document.createElement("tr");
+    text("td",q.query_id,tr);text("td",q.failure_kind||q.status,tr);
+    text("td",number(q.estimated_cost),tr);text("td",number(q.actual_elapsed_ms),tr);
+    text("td",errorText(q.worst_row_error_factor,q.worst_row_error_unbounded),tr);
+    tr.addEventListener("click",()=>{
+      $("details").replaceChildren();text("h2",q.query_id);
+      text("p",`Status: ${q.failure_kind||q.status}. Server elapsed ${number(q.actual_elapsed_ms)} ms; CPU ${number(q.actual_cpu_ms)} ms. Client elapsed ${number(q.client_elapsed_ms)} ms (includes overhead).`);
+      text("p",`Estimated cost: ${number(q.estimated_cost)} optimizer units; no comparable actual cost unit is supplied by SQL Server.`);
+      text("p",`Worst join error: ${errorText(q.worst_row_error_factor,q.worst_row_error_unbounded)}; signed deviation ${number(q.worst_row_deviation_pct)}%; ${q.worst_row_deviation_direction||"no complete runtime evidence"}.`);
+      if(q.worst_operator_id)text("pre",q.worst_operator_id);
+      if(q.error)text("pre",q.error);
+      queryLinks([q.query_id]);$("details").scrollIntoView({block:"nearest"});
+    });
+    $("query-ranking").appendChild(tr);
+  }
+}
+$("query-sort").addEventListener("input",drawQueries);
+drawQueries();
+draw();
+</script>
+</html>
