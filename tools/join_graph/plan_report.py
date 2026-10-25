@@ -14,7 +14,11 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from report import canonical, export, write_csv, write_json
+from sqlglot.errors import SqlglotError
+
+from extractor import extract, read_schema
+from report import canonical, export, usage_markdown, write_csv, write_json, write_usage_csvs
+from usage import DEFAULT_SCHEMA, default_context
 
 LOGGER = logging.getLogger("join_graph.plans")
 NS = {"p": "http://schemas.microsoft.com/sqlserver/2004/07/showplan"}
@@ -334,6 +338,7 @@ def generate(output: Path) -> dict[str, Any]:
     actual = manifest["mode"] == "actual_STATISTICS_XML"
     reports = []
     operators = []
+    schema = read_schema(DEFAULT_SCHEMA) if DEFAULT_SCHEMA.is_file() else {}
     for entry in manifest["queries"]:
         report: dict[str, Any] = {
             "query_id": entry["query_id"], "status": "failed", "original_sql": entry.get("original_sql"),
@@ -361,6 +366,12 @@ def generate(output: Path) -> dict[str, Any]:
             report.update(status="failed", error=str(error), references=[], joins=[], unresolved=[],
                           join_operators=[], statements=[])
             LOGGER.error("%s: %s", entry["query_id"], error)
+        if report["original_sql"]:
+            # GROUP BY/filter/aggregate usage is a SQL-text property; plans do not expose it reliably.
+            try:
+                report["usage"] = extract(report["original_sql"], entry["query_id"], schema)["usage"]
+            except (SqlglotError, ValueError) as error:
+                LOGGER.warning("%s: static usage unavailable: %s", entry["query_id"], error)
         reports.append(report)
         operators.extend(report["join_operators"])
     selection = dict(manifest["selection"])
@@ -368,7 +379,7 @@ def generate(output: Path) -> dict[str, Any]:
     data = export(output, reports, selection, 5, {
         "plan_database": manifest["database"], "collection_mode": manifest["mode"],
         "collected_at_utc": manifest["collected_at_utc"],
-    })
+    }, default_context())
     op_by_id = {op["operator_id"]: op for op in operators}
     edge_operators: dict[tuple, set[str]] = {}
     for report in reports:
@@ -399,6 +410,18 @@ def generate(output: Path) -> dict[str, Any]:
         s["optimization_early_abort_reason"] for s in early_aborts).items()))
     data["coverage"]["timed_out_queries"] = sum(r.get("failure_kind") == "timeout" for r in reports)
     data["query_metrics"] = [query_metrics(r) for r in reports]
+    if actual:
+        worst = sorted((q for q in data["query_metrics"] if q["worst_row_error_factor"] is not None),
+                       key=lambda q: (-q["worst_row_error_factor"], q["query_id"]))[:5]
+        unbounded = sum(bool(q["worst_row_error_unbounded"]) for q in data["query_metrics"])
+        for hint in data["optimization_hints"]:
+            if hint["kind"] == "statistics" and worst:
+                hint["evidence"] = ("Largest measured join row estimate errors in this run: " + ", ".join(
+                    f"{q['query_id']} ({q['worst_row_error_factor']:,.0f}x)" for q in worst)
+                    + f". {unbounded} queries also have a join estimated to return rows that returned none "
+                    "(unbounded error). Misestimates can cause bad join strategies regardless of indexes.")
+                hint["query_ids"] = [q["query_id"] for q in worst]
+        write_usage_csvs(output, data)
     write_json(output / "coverage_report.json", data["coverage"])
     write_json(output / "aggregate.json", data)
     write_csv(output / "join_operators.csv", operators, [
@@ -508,7 +531,8 @@ def generate(output: Path) -> dict[str, Any]:
                      f"{q['worst_row_error_factor']:.2f}x" if q["worst_row_error_factor"] is not None else "unavailable")
             summary.append(f"| {q['query_id']} | {q['status']} | "
                            f"{q['actual_elapsed_ms'] if q['actual_elapsed_ms'] is not None else 'unavailable'} | {error} |")
-    (output / "README.md").write_text("\n".join(summary), encoding="utf-8")
+    summary.extend(usage_markdown(data))
+    (output / "README.md").write_text("\n".join(summary) + "\n", encoding="utf-8")
     return data
 
 

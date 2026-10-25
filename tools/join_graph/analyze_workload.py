@@ -16,6 +16,7 @@ from sqlglot.errors import SqlglotError
 
 from extractor import extract, read_schema
 from report import export, report_filename
+from usage import DEFAULT_DATASET, DEFAULT_INDEX_SCRIPT, count_rows, read_indexes
 
 LOGGER = logging.getLogger("join_graph")
 ROOT = Path(__file__).resolve().parents[2]
@@ -60,7 +61,8 @@ def discover(input_dir: Path, query_list: Path | None) -> tuple[list[tuple[str, 
 
 
 def run(input_dir: Path, output: Path, schema_path: Path | None,
-        query_list: Path | None = None, minimum: int = 5) -> dict[str, Any]:
+        query_list: Path | None = None, minimum: int = 5,
+        index_script: Path | None = None, dataset: Path | None = None) -> dict[str, Any]:
     input_dir, output = input_dir.resolve(), output.resolve()
     if output == input_dir or output.is_relative_to(input_dir):
         raise ValueError("Output must be outside the input directory to avoid analyzing generated files")
@@ -93,7 +95,12 @@ def run(input_dir: Path, output: Path, schema_path: Path | None,
         "schema_sha256": hashlib.sha256(schema_path.read_bytes()).hexdigest() if schema_path else None,
         "schema_tables": len(schema),
     }
-    return export(output, reports, manifest, minimum, metadata)
+    usage_context = {
+        "indexes": read_indexes(index_script, schema_path), "row_counts": count_rows(dataset),
+        "index_script": str(index_script) if index_script else None,
+        "dataset": str(dataset) if dataset else None,
+    }
+    return export(output, reports, manifest, minimum, metadata, usage_context)
 
 
 def main() -> int:
@@ -104,6 +111,10 @@ def main() -> int:
     parser.add_argument("--schema", type=Path, default=ROOT / "tpcds-kit/tools/tpcds.sql",
                         help="CREATE TABLE DDL for resolving bare columns; defaults to TPC-DS schema")
     parser.add_argument("--no-schema", action="store_true", help="Use scoped aliases only (bare columns may be ambiguous)")
+    parser.add_argument("--index-script", type=Path, default=DEFAULT_INDEX_SCRIPT,
+                        help="CREATE INDEX script used to report existing index coverage in hints")
+    parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET,
+                        help="Directory of dsdgen .dat files used for row counts (skipped if missing)")
     parser.add_argument("--min-edge-query-count", type=int, default=5,
                         help="Initial HTML filter and SVG threshold; CSV/JSON/DOT retain all edges")
     parser.add_argument("--fail-on-parse-errors", action="store_true",
@@ -115,7 +126,7 @@ def main() -> int:
         parser.error("--min-edge-query-count must be nonnegative")
     try:
         data = run(args.input, args.output, None if args.no_schema else args.schema,
-                   args.query_list, args.min_edge_query_count)
+                   args.query_list, args.min_edge_query_count, args.index_script, args.dataset)
     except (OSError, UnicodeError, SqlglotError, ValueError) as error:
         LOGGER.error("%s", error)
         return 2

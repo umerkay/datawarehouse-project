@@ -21,6 +21,7 @@ tools/join_graph/
   plan_report.py          # XML parsing, metrics and plan reports
   compare_plans.py        # SQL-hash-checked snapshot comparison
   report.py              # Shared aggregation and exports
+  usage.py               # GROUP BY/filter/aggregate usage, levels and hints
   graph.html             # Source template, not a generated graph
   requirements.txt       # Pinned parser dependency
   samples/               # Small hand-written SQL fixtures + expected.json
@@ -181,6 +182,59 @@ and estimated averages to infer an operator error. Edge details and per-query
 reports expose individual identities and deviations. Operator elapsed times can
 overlap and include descendants; they are not summed to calculate query time.
 
+## Workload usage: aggregation, filters and granularity
+
+Every graph (static, estimated and actual) also includes a syntax-only
+**usage analysis** produced by `usage.py`. It answers "what do queries do with
+each table", not only "what joins with what":
+
+| Question | Where to look | Typical optimization it hints at |
+|---|---|---|
+| Which columns are filtered most (and how: `=`, range, IN, LIKE)? | Guide → column table; node panel "Filtered columns" | Nonclustered (filter) index, statistics |
+| Which columns appear inside SUM/AVG/COUNT/…? | Node panel "Aggregated columns"; column table | Columnstore index covering those measures |
+| At which level are dimensions grouped (e.g. `date_dim` by day, month or year)? | Node panel "GROUP BY granularity" | Materialized/indexed summary view at that level |
+| Which GROUP BY levels do queries using a join edge have? | Click an edge → "Aggregation levels" | Pre-aggregated fact at that grain |
+| What grain does each fact need per dimension? | Fact node panel "Dimension levels needed" | Choosing the grain of a summary table |
+| Does an existing columnstore cover all columns a query uses? | Fact node panel / hints | Adding missing columns to the NCCI |
+
+The bottom of each HTML page has a **"Where to start optimizing"** guide with a
+glossary, rule-based hint cards (click one to list its supporting queries) and a
+searchable, sortable column-usage table (click a row for details). The generated
+`README.md` repeats the hints in text form.
+
+Definitions:
+
+- **Counts are distinct queries**, aggregated at query level: a column filtered
+  twice in one query counts once.
+- **Filter** = comparison of one table's column with a constant, parameter, list,
+  pattern, NULL test or subquery. A comparison between columns of two tables is a
+  join, not a filter. Filters inside OR/NOT are marked conditional.
+- **Lineage**: columns referenced through simple CTEs/derived tables are traced
+  back to physical columns. Filters/GROUP BY on an *aggregated* CTE output (e.g.
+  `year_total > 0`) are recorded as `aggregate_value` and not attributed to a column.
+- **Level** uses fixed hierarchies (`usage.py` `_LEVELS`), e.g. `date_dim`:
+  day (`d_date`, `d_date_sk`) → week → month (`d_moy`) → quarter → year (`d_year`);
+  `item`: item → brand → class → category. The finest level used in a clause wins.
+- **Fact grain**: for every dimension joined directly to a fact, the level is the
+  finest column used in GROUP BY or filters; "join only" means the join filters
+  rows but no attribute is used.
+- **Existing indexes** are parsed from primary keys in the schema and from
+  [indexing_strategy.sql](../../scripts/indexing_strategy.sql) (`--index-script`).
+  Table sizes come from `.dat` line counts (`--dataset`).
+- **Hints** are simple threshold rules: frequent unindexed filter columns
+  (≥ 3 queries), incomplete columnstore coverage, facts with no columnstore,
+  common coarse GROUP BY levels (summary candidates), tiny tables (< 1,000 rows,
+  where indexes rarely matter) and, for actual plans, the largest row-estimate errors.
+  They are **starting points to test, not recommendations**.
+
+Additional CSV outputs: `column_usage.csv`, `table_granularity.csv`,
+`fact_grains.csv`, `edge_grouping_levels.csv`, `optimization_hints.csv`.
+
+Limitations: syntax only (no selectivity, no data values); co-occurrence is per
+query, so a GROUP BY level attached to an edge comes from a query that uses the
+edge, not necessarily from the same subquery; only simple non-recursive lineage;
+expressions such as `substr(ca_zip, 1, 5)` are attributed to their underlying column.
+
 ## Graph controls
 
 - Table-pair view for topology; joined-attributes view for individual column pairs.
@@ -302,7 +356,8 @@ Tests cover scoped extraction, canonicalization, failures, export reproducibilit
 parallel/repeated runtime counters, zero/unexecuted branches, signed error metrics,
 timeout continuation and result-row omission.
 
-The current implementation passed **62 tests**, including the optional local
+The current implementation passed **70 tests** (including usage extraction,
+lineage, level and fact-grain aggregation in `tests/test_usage.py`), including the optional local
 workload test. The bounded actual capture completed **99/103** baseline queries
 and **103/103** indexed queries. Baseline query_010, query_014, query_015 and
 query_076 reached the 10-second limit; none has fabricated server timings or row
@@ -314,6 +369,24 @@ These observations describe this diagnostic snapshot, not a performance guarante
 
 ## Next steps for the benchmarking project
 
+A beginner-friendly order of work:
+
+0. Open `generated/static/join_graph.html`, scroll to **Where to start
+   optimizing**, and read the hint cards. Findings from the current snapshot:
+   - `d_year` is filtered in 58 queries and is already the leading key of
+     `IX_date_dim_year_month_quarter`: nothing to add there.
+   - `customer_demographics` (1.9M rows) filter columns are not indexed: a
+     candidate nonclustered index to test.
+   - `NCCI_store_sales` covers 48 of 70 store_sales queries; missing columns
+     (e.g. `ss_addr_sk`, `ss_hdemo_sk`, `ss_coupon_amt`) prevent full coverage.
+     `NCCI_store_returns` lacks `sr_return_quantity`/`sr_return_amt`.
+   - `catalog_returns`, `web_returns` and `inventory` (11.7M rows) have no columnstore.
+   - store_sales queries need date at month (29), day (13) or year (12) level:
+     a monthly summary would serve the largest group, but it must be checked
+     against the other dimensions in `fact_grains.csv`.
+   Add chosen candidates to `scripts/indexing_strategy.sql`, apply with
+   `05_apply_indexing.sh`, and compare with `03_run_benchmark.sh` /
+   `04_profile_queries.sh` and the actual-plan comparison below.
 1. Use syntax frequency plus the actual graph's query/error rankings to shortlist
    hypotheses. Large cardinality errors can indicate stale statistics, skew,
    correlations or complex predicates; **an index is not automatically the fix**.

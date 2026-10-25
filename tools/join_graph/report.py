@@ -12,6 +12,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+from usage import analyze
+
 
 def stable_id(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
@@ -122,6 +124,60 @@ def write_csv(path: Path, rows: list[dict[str, Any]], fields: list[str]) -> None
                              else value for key, value in row.items() if key in fields})
 
 
+def write_usage_csvs(output: Path, data: dict[str, Any]) -> None:
+    write_csv(output / "column_usage.csv", data["column_usage"], [
+        "table", "column", "fact_table", "table_rows", "filter_query_count", "group_by_query_count",
+        "aggregate_query_count", "join_query_count", "filter_kinds", "aggregate_functions",
+        "existing_indexes", "hierarchy_level", "filter_query_ids", "group_by_query_ids",
+        "aggregate_query_ids", "join_query_ids",
+    ])
+    write_csv(output / "table_granularity.csv", [
+        {"table": table, "usage": usage, **row}
+        for table, info in data["table_usage"].items()
+        for usage, key in (("group_by", "group_levels"), ("filter", "filter_levels")) for row in info[key]
+    ], ["table", "usage", "level", "columns", "query_count", "query_ids"])
+    write_csv(output / "fact_grains.csv", [
+        {"fact_table": fact["table"], **row} for fact in data["fact_grains"] for row in fact["dimension_levels"]
+    ], ["fact_table", "dimension", "level", "query_count", "query_ids"])
+    write_csv(output / "edge_grouping_levels.csv", [
+        {"edge_id": edge["edge_id"], "relationship": edge["label"], **row}
+        for edge in data["edges"] for row in edge["grouping_levels"]
+    ], ["edge_id", "relationship", "signature", "query_count", "query_ids"])
+    write_csv(output / "optimization_hints.csv", data["optimization_hints"], [
+        "kind", "title", "table", "columns", "evidence", "action", "caveat", "query_ids",
+    ])
+
+
+def usage_markdown(data: dict[str, Any]) -> list[str]:
+    lines = [
+        "", "## Where to start optimizing", "",
+        "Beginner-oriented starting points derived from syntax only. Each is a hypothesis to test with "
+        "actual plans and benchmark runs, not a guaranteed improvement. Full evidence: "
+        "[optimization_hints.csv](optimization_hints.csv), [column_usage.csv](column_usage.csv).", "",
+    ]
+    for hint in data["optimization_hints"]:
+        lines.append(f"- **{hint['title']}** — {hint['evidence']} *Try:* {hint['action']} "
+                     f"*Caveat:* {hint['caveat']}")
+    def top(field: str, title: str) -> None:
+        rows = sorted((r for r in data["column_usage"] if r[field]),
+                      key=lambda r: (-r[field], r["table"], r["column"]))[:10]
+        lines.extend(["", f"### {title}", "", "| Column | Queries | Existing indexes |", "|---|---:|---|"])
+        lines.extend(f"| `{r['table']}.{r['column']}` | {r[field]} | {'; '.join(r['existing_indexes']) or '-'} |"
+                     for r in rows)
+    top("filter_query_count", "Most filtered columns (index candidates)")
+    top("aggregate_query_count", "Most aggregated columns (columnstore candidates)")
+    top("group_by_query_count", "Most grouped columns")
+    lines.extend(["", "### Aggregation levels needed per fact table", "",
+                  "Dimension level needed by each query = GROUP BY columns plus filter columns of that dimension. "
+                  "See [fact_grains.csv](fact_grains.csv) and [table_granularity.csv](table_granularity.csv).", "",
+                  "| Fact | Queries | date_dim levels (queries) |", "|---|---:|---|"])
+    for fact in data["fact_grains"]:
+        levels = ", ".join(f"{d['level']} ({d['query_count']})" for d in fact["dimension_levels"]
+                           if d["dimension"] == "date_dim")
+        lines.append(f"| `{fact['table']}` | {fact['query_count']} | {levels or '-'} |")
+    return lines
+
+
 def physical_graph(data: dict[str, Any], minimum: int, pairs: bool = False) -> tuple[list, list]:
     nodes = [n for n in data["nodes"] if n["reference_type"] == "physical"]
     edges = [e for e in data["table_pairs" if pairs else "edges"]
@@ -183,7 +239,8 @@ def render_svg(data: dict[str, Any], minimum: int) -> str:
 
 
 def export(output: Path, reports: list[dict[str, Any]], manifest: dict[str, Any],
-           minimum: int, schema_metadata: dict[str, Any]) -> dict[str, Any]:
+           minimum: int, schema_metadata: dict[str, Any],
+           usage_context: dict[str, Any] | None = None) -> dict[str, Any]:
     output.mkdir(parents=True, exist_ok=True)
     query_dir = output / "query_reports"
     query_dir.mkdir(exist_ok=True)
@@ -197,6 +254,7 @@ def export(output: Path, reports: list[dict[str, Any]], manifest: dict[str, Any]
     for report in reports:
         write_json(query_dir / report_filename(report["query_id"]), report)
     data = aggregate(reports)
+    analyze(reports, data, usage_context)
     unresolved = [u for r in reports for u in r["unresolved"]]
     failures = [{"query_id": r["query_id"], "error": r["error"]}
                 for r in reports if r["status"] == "failed"]
@@ -248,6 +306,7 @@ def export(output: Path, reports: list[dict[str, Any]], manifest: dict[str, Any]
         "query_id", "scope_id", "raw_predicate", "left_reference", "right_reference", "reason",
     ])
     write_csv(output / "failures.csv", failures, ["query_id", "error"])
+    write_usage_csvs(output, data)
     (output / "join_graph.dot").write_text(render_dot(data, 0), encoding="utf-8")
     (output / "join_graph.svg").write_text(render_svg(data, minimum), encoding="utf-8")
     template = Path(__file__).with_name("graph.html").read_text(encoding="utf-8")
@@ -275,6 +334,7 @@ def export(output: Path, reports: list[dict[str, Any]], manifest: dict[str, Any]
         "|---|---:|---:|",
     ]
     summary.extend(f"| `{e['label']}` | {e['query_count']} | {e['occurrence_count']} |" for e in top)
+    summary.extend(usage_markdown(data))
     summary.extend([
         "", "## Verification", "",
         "1. Find a relationship in [join_edges.csv](join_edges.csv); `query_ids` lists every supporting query.",

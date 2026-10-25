@@ -13,6 +13,8 @@ from sqlglot.optimizer.scope import Scope, traverse_scope
 COMPARISONS = (exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE)
 OPERATORS = {exp.EQ: "=", exp.NEQ: "<>", exp.GT: ">", exp.GTE: ">=",
              exp.LT: "<", exp.LTE: "<="}
+MEASURES = (exp.Sum, exp.Avg, exp.Count, exp.Min, exp.Max, exp.Stddev, exp.StddevPop,
+            exp.StddevSamp, exp.Variance, exp.Median, exp.CountIf, exp.ApproxDistinct)
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,91 @@ class Endpoint:
 
 def table_name(table: exp.Table) -> str:
     return ".".join(part.name.lower() for part in table.parts)
+
+
+def branches(expression: exp.Expression) -> list[exp.Select]:
+    if isinstance(expression, exp.SetOperation):
+        return branches(expression.left) + branches(expression.right)
+    expression = expression.unnest() if isinstance(expression, exp.Subquery) else expression
+    return [expression] if isinstance(expression, exp.Select) else []
+
+
+def local_columns(node: exp.Expression, select: exp.Expression) -> list[exp.Column]:
+    """Columns of `node` owned by `select`, excluding those inside nested subqueries."""
+    return [c for c in node.find_all(exp.Column) if c.find_ancestor(exp.Select) is select]
+
+
+def filter_target(node: exp.Expression, select: exp.Expression) -> tuple[str, exp.Expression] | None:
+    """Return (kind, column side) for column-vs-value predicates; joins return None."""
+    def has_local(side: exp.Expression | None) -> bool:
+        return side is not None and bool(local_columns(side, select))
+    if isinstance(node, COMPARISONS):
+        left, right = node.left, node.right
+        if has_local(left) == has_local(right):
+            return None
+        kind = {exp.EQ: "equality", exp.NEQ: "not_equal"}.get(type(node), "range")
+        return kind, left if has_local(left) else right
+    if isinstance(node, exp.Between):
+        values = [node.args.get("low"), node.args.get("high")]
+        kind, target = "range", node.this
+    elif isinstance(node, exp.In):
+        values = node.expressions
+        kind = "in_subquery" if node.args.get("query") is not None else "in_list"
+        target = node.this
+    elif isinstance(node, (exp.Like, exp.ILike)):
+        kind, target, values = "like", node.this, [node.expression]
+    elif isinstance(node, exp.Is):
+        kind, target, values = "is_null", node.this, [node.expression]
+    else:
+        return None
+    if not has_local(target) or any(has_local(v) for v in values):
+        return None
+    return kind, target
+
+
+def collect_usage(scope: Scope, scope_id: str, resolve_all, usage: dict[str, list]) -> None:
+    """Record GROUP BY sets, column-vs-value filters and aggregate arguments for one SELECT scope."""
+    select = scope.expression
+    referenced, _, _ = resolve_all(select, scope)
+    usage["referenced"].append({"scope_id": scope_id, "columns": referenced})
+    group = select.args.get("group")
+    if group is not None:
+        columns, complete, on_aggregate = resolve_all(group, scope, False)
+        usage["group_by"].append({
+            "scope_id": scope_id, "columns": columns, "complete": complete,
+            "on_aggregate": on_aggregate,
+            "rollup": group.find(exp.Rollup, exp.Cube, exp.GroupingSets) is not None
+            or bool(group.args.get("rollup") or group.args.get("cube")),
+            "raw": group.sql(dialect="tsql"),
+        })
+    roots = [select.args["where"].this] if select.args.get("where") else []
+    roots += [j.args["on"] for j in select.args.get("joins") or [] if j.args.get("on") is not None]
+    for root in roots:
+        for node in root.walk():
+            if node.find_ancestor(exp.Select) is not select:
+                continue
+            found = filter_target(node, select)
+            if found is None:
+                continue
+            kind, target = found
+            columns, complete, on_aggregate = resolve_all(target, scope, False)
+            usage["filters"].append({
+                "scope_id": scope_id, "columns": columns, "complete": complete,
+                "kind": "aggregate_value" if on_aggregate else kind,
+                "expression": not isinstance(target.unnest(), exp.Column),
+                "negated": isinstance(node.parent, exp.Not),
+                "conditional": node.find_ancestor(exp.Or) is not None,
+                "raw": node.sql(dialect="tsql"),
+            })
+    for aggregate in select.find_all(MEASURES):
+        if aggregate.find_ancestor(exp.Select) is not select:
+            continue
+        columns, complete, _ = resolve_all(aggregate, scope)
+        usage["aggregates"].append({
+            "scope_id": scope_id, "function": aggregate.key, "columns": columns,
+            "complete": complete, "window": isinstance(aggregate.parent, exp.Window),
+            "raw": aggregate.sql(dialect="tsql"),
+        })
 
 
 def read_schema(path: Path | None) -> dict[str, frozenset[str]]:
@@ -62,12 +149,15 @@ def extract(sql: str, query_id: str, schema: dict[str, frozenset[str]]) -> dict[
         "query_id": query_id, "status": "success", "original_sql": sql,
         "parser_sql": [s.sql(dialect="tsql") for s in statements if s is not None],
         "references": [], "joins": [], "unresolved": [],
+        "usage": {"group_by": [], "filters": [], "aggregates": [], "referenced": []},
     }
     for statement_index, statement in enumerate(statements):
         if statement is None:
             continue
         scopes = list(traverse_scope(statement))
         scope_ids = {id(scope): f"s{statement_index}.{i}" for i, scope in enumerate(scopes)}
+        scope_by_expression = {id(scope.expression): scope for scope in scopes}
+        role_scopes: dict[str, Scope] = {}
         source_maps: dict[int, dict[str, Source]] = {}
         for scope in scopes:
             sources = {}
@@ -89,6 +179,7 @@ def extract(sql: str, query_id: str, schema: dict[str, frozenset[str]]) -> dict[
                         columns = frozenset(c.lower() for c in source.outer_columns)
                     item = Source(f"@{query_id}:{identity}:{kind}:{name}", role,
                                   "non_physical", columns if "*" not in columns else None)
+                    role_scopes[role] = source
                 sources[alias.lower()] = item
                 report["references"].append({
                     "table": item.table, "role": role, "reference_type": item.reference_type,
@@ -121,6 +212,57 @@ def extract(sql: str, query_id: str, schema: dict[str, frozenset[str]]) -> dict[
                     break
                 current = current.parent
             return None, f"No scoped source for {column.sql(dialect='tsql')}"
+
+        def physical(column: exp.Column, scope: Scope, through_aggregates: bool,
+                     depth: int = 0) -> tuple[list[tuple[str, str]], bool, bool]:
+            """Resolve to physical columns via simple CTE/derived projections.
+
+            Returns (columns, complete, stopped_at_aggregate)."""
+            endpoint, _ = resolve(column, scope)
+            if endpoint is None:
+                return [], False, False
+            if endpoint.reference_type == "physical":
+                return [(endpoint.table, endpoint.column)], True, False
+            source = role_scopes.get(endpoint.role)
+            if source is None or depth >= 6:
+                return [], False, False
+            selects = branches(source.expression)
+            names = [c.lower() for c in (source.outer_columns or
+                                         (selects[0].named_selects if selects else []))]
+            if endpoint.column not in names:
+                return [], False, False
+            position, found, complete, stopped = names.index(endpoint.column), [], True, False
+            for select in selects:
+                inner = scope_by_expression.get(id(select))
+                if inner is None or position >= len(select.expressions):
+                    complete = False
+                    continue
+                projection = select.expressions[position].unalias()
+                if not through_aggregates and any(
+                        a.find_ancestor(exp.Select) is select for a in projection.find_all(MEASURES)):
+                    stopped = True
+                    continue
+                columns = local_columns(projection, select)
+                for inner_column in columns:
+                    resolved, ok, inner_stopped = physical(inner_column, inner, through_aggregates, depth + 1)
+                    found.extend(resolved)
+                    complete = complete and ok
+                    stopped = stopped or inner_stopped
+            return found, complete, stopped
+
+        def resolve_all(node: exp.Expression, scope: Scope,
+                        through_aggregates: bool = True) -> tuple[list[dict[str, str]], bool, bool]:
+            found, complete, stopped = [], True, False
+            for column in local_columns(node, scope.expression):
+                resolved, ok, inner_stopped = physical(column, scope, through_aggregates)
+                found.extend(resolved)
+                complete = complete and ok
+                stopped = stopped or inner_stopped
+            return [{"table": t, "column": c} for t, c in sorted(set(found))], complete, stopped
+
+        for scope in scopes:
+            if isinstance(scope.expression, exp.Select):
+                collect_usage(scope, scope_ids[id(scope)], resolve_all, report["usage"])
 
         for scope in scopes:
             if not isinstance(scope.expression, exp.Select):

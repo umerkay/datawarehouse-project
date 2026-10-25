@@ -132,6 +132,8 @@ Use the graph to shortlist index experiments, then validate those experiments wi
 
 Estimated-plan companions are available for the [baseline database](tools/join_graph/generated/plans-baseline/join_graph.html) and [indexed database](tools/join_graph/generated/plans-indexed/join_graph.html). They compile without executing the workload. Actual-plan graphs for [baseline](tools/join_graph/generated/actual-baseline/join_graph.html) and [indexed](tools/join_graph/generated/actual-indexed/join_graph.html) add measured elapsed/CPU time and estimated-versus-actual join row deviations, with explicit timeouts. **Actual collection executes SELECTs once with deadlines**; it is separate from the repeated benchmark protocol. SQL Server optimizer cost is not milliseconds, so no misleading cost-to-time percentage is calculated. See the [tool instructions](tools/join_graph/README.md) for regeneration commands, metric definitions and limitations.
 
+Each graph also analyzes **how** tables are used. Clicking a table shows its most filtered columns (index candidates), aggregated measures (columnstore candidates), GROUP BY granularity (for example `date_dim` grouped by day, month or year, which helps decide on materialized summaries) and existing indexes. Clicking a join shows the aggregation levels of the queries that use it. The **Where to start optimizing** section at the bottom of each page lists rule-based hints with supporting queries and a searchable column-usage table. These hints are hypotheses to test with `05_apply_indexing.sh` and the benchmark, not automatic recommendations.
+
 ---
 
 ## Resetting the Environment

@@ -24,6 +24,16 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{padding:7px;borde
 tbody tr{cursor:pointer}tbody tr:hover{background:#eff6ff}.note{color:#64748b;font-size:12px}
 #query-analysis{padding:0 20px 20px}#query-analysis .query-scroll{max-height:340px;overflow:auto}
 #status{padding:0 20px;font-weight:600}#query-links a{display:inline-block;margin:4px 8px 4px 0}
+.bar-row{display:grid;grid-template-columns:minmax(0,1fr) 80px 30px;gap:6px;align-items:center;font-size:12px;margin:3px 0}
+.bar{background:#e2e8f0;height:9px;border-radius:4px;overflow:hidden}.bar span{display:block;height:100%;background:#2563eb}
+.tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:9px;background:#e0e7ff;margin:2px 4px 2px 0}
+.tag.warn{background:#fef3c7}.tag.ok{background:#dcfce7}
+#guide{padding:0 20px 20px}#guide .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
+.card{background:white;border:1px solid #cbd5e1;border-left:5px solid #2563eb;border-radius:6px;padding:10px 12px}
+.card.filter_index{border-left-color:#16a34a}.card.columnstore{border-left-color:#d97706}.card.summary{border-left-color:#7c3aed}
+.card.skip,.card.statistics{border-left-color:#64748b}.card h4{margin:0 0 6px;font-size:14px}.card p{margin:5px 0;font-size:12.5px}
+.glossary{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px 18px;font-size:12.5px;color:#334155}
+#column-usage .query-scroll{max-height:420px;overflow:auto}td.num,th.num{text-align:right}
 @media(max-width:900px){main{display:block}aside{border-left:0;max-height:none}#graph{height:620px}}
 </style>
 <header>
@@ -39,6 +49,7 @@ tbody tr{cursor:pointer}tbody tr:hover{background:#eff6ff}.note{color:#64748b;fo
   <label><input id="labels" type="checkbox">Edge counts</label>
   <label id="plan-sort-control" hidden>Rank by <select id="rank-mode"><option value="queries">Query count</option><option value="estimated">Max estimated output rows</option><option id="error-sort" value="error" hidden>Worst row estimate error</option></select></label>
   <button id="reset">Reset view</button>
+  <a href="#guide">Where to start optimizing &darr;</a>
   <a href="README.md">Results &amp; next steps</a>
 </section>
 <div class="legend">
@@ -46,7 +57,7 @@ tbody tr{cursor:pointer}tbody tr:hover{background:#eff6ff}.note{color:#64748b;fo
   &nbsp; <span class="dot" style="background:#93c5fd"></span>Dimension/other physical table
   &nbsp; <span class="dot" style="background:#d8b4fe"></span>Unresolved CTE/derived
   &nbsp; Node size = distinct referencing queries; edge width = distinct joining queries.
-  Click edges/nodes for attributes and evidence. Scroll to zoom; drag background to pan.
+  Click a table for its aggregation levels, filters and aggregated measures; click an edge for the GROUP BY levels of queries using that join. Scroll to zoom; drag background to pan.
 </div>
 <p id="status" role="status"></p>
 <main>
@@ -56,7 +67,7 @@ tbody tr{cursor:pointer}tbody tr:hover{background:#eff6ff}.note{color:#64748b;fo
   <aside>
     <section id="details" aria-live="polite">
       <h2>Select a table or relationship</h2>
-      <p>Use table pairs for the overview, then joined attributes to distinguish column pairs. Hover for counts; click for complete query evidence.</p>
+      <p>Click a <b>table</b> to see how queries aggregate it (e.g. date_dim by day, month or year), which columns they filter on and which measures they SUM/AVG/COUNT. Click a <b>relationship</b> to see the GROUP BY levels of the queries using that join. The <a href="#guide">Where to start optimizing</a> section below turns these counts into concrete experiments.</p>
     </section>
     <h3 id="ranking-title">Visible relationships (highest query count first)</h3>
     <p class="note">Counts are distinct queries, not repeated predicate occurrences. All selected queries, including failures, form the frequency denominator.</p>
@@ -67,6 +78,25 @@ tbody tr{cursor:pointer}tbody tr:hover{background:#eff6ff}.note{color:#64748b;fo
       &middot; <a href="join_operators.csv">All join operators</a></p>
   </aside>
 </main>
+<section id="guide">
+  <h2>Where to start optimizing</h2>
+  <p class="note">Hypotheses derived from query syntax (and, in plan graphs, measured estimates). Each card says what evidence was found, a concrete experiment and a caveat. Always measure before/after with the benchmark scripts; one change at a time. Click a card to list its supporting queries in the side panel.</p>
+  <div class="glossary">
+    <p><b>Rowstore (B-tree) index</b>: lets SQL Server <i>seek</i> straight to matching rows. Worth it for selective filters (e.g. <code>ca_state = 'TX'</code>) on larger tables.</p>
+    <p><b>Columnstore index</b>: compresses each column separately; fast for scanning and aggregating many rows of big fact tables. Only usable alone if it contains every column the query touches on that table.</p>
+    <p><b>Summary table / indexed view</b>: pre-computed aggregates at a fixed grain (e.g. sales per month and brand). Pays off when many queries need the same or a coarser grain.</p>
+    <p><b>Statistics</b>: the optimizer's row-count estimates. Large estimation errors produce bad plans even with good indexes.</p>
+  </div>
+  <div class="cards" id="hint-cards"></div>
+  <section id="column-usage">
+    <h3>Column usage across the workload</h3>
+    <p class="note">Distinct queries using each physical column in a filter (WHERE/ON compared with a value), GROUP BY, inside an aggregate function (SUM/AVG/COUNT/MIN/MAX...), or as a join key. Filters on CTE aggregate results (e.g. <code>year_total &gt; 0</code>) are excluded. Click a row for details.</p>
+    <label>Sort by <select id="usage-sort"><option value="filter_query_count">Filtered</option><option value="group_by_query_count">Grouped</option><option value="aggregate_query_count">Aggregated</option><option value="join_query_count">Joined</option></select></label>
+    <label>Search <input id="usage-search" type="search" placeholder="table or column"></label>
+    <p><a href="column_usage.csv">column_usage.csv</a> &middot; <a href="table_granularity.csv">table_granularity.csv</a> &middot; <a href="fact_grains.csv">fact_grains.csv</a> &middot; <a href="edge_grouping_levels.csv">edge_grouping_levels.csv</a> &middot; <a href="optimization_hints.csv">optimization_hints.csv</a></p>
+    <div class="query-scroll"><table><thead><tr><th>Column</th><th class="num">Filtered</th><th class="num">Grouped</th><th class="num">Aggregated</th><th class="num">Joined</th><th class="num">Table rows</th><th>Existing indexes</th></tr></thead><tbody id="usage-table"></tbody></table></div>
+  </section>
+</section>
 <section id="query-analysis" hidden>
   <h2>Query runtime and estimation accuracy</h2>
   <p>One bounded diagnostic execution per query, not a repeated benchmark. Elapsed time and optimizer cost have different units and cannot be divided to obtain a meaningful cost error. Row errors compare estimates within the actual plan with measured output per invocation, including unmapped joins.</p>
@@ -113,6 +143,31 @@ function element(tag, attrs, parent, text) {
 function text(tag, content, parent=$("details")) {
   const e = document.createElement(tag); e.textContent=content; parent.appendChild(e); return e;
 }
+function bars(rows) {
+  const box=document.createElement("div"), max=Math.max(1,...rows.map(r=>r.count));
+  for(const r of rows){
+    const row=document.createElement("div");row.className="bar-row";row.title=r.title||r.label;
+    const label=document.createElement("span");label.textContent=r.label;
+    const track=document.createElement("span");track.className="bar";
+    const fill=document.createElement("span");fill.style.width=`${100*r.count/max}%`;track.appendChild(fill);
+    const n=document.createElement("span");n.textContent=r.count;row.append(label,track,n);box.appendChild(row);
+  }
+  $("details").appendChild(box);
+}
+function note(content){text("p",content).className="note";}
+const usageRows=data.column_usage||[], tableUsage=data.table_usage||{}, hints=data.optimization_hints||[];
+const indexText=r=>r.existing_indexes.length?r.existing_indexes.join("; "):"none";
+function columnBars(columns,field){
+  bars(columns.map(c=>{const r=usageRows.find(u=>u.table===c.table&&u.column===c.column)||{};
+    return {label:c.column,count:c.query_count,title:`${c.column}: ${c.query_count} queries; existing indexes: ${r.existing_indexes?indexText(r):"unknown"}`};}));
+}
+function hintsFor(table){
+  const own=hints.filter(h=>h.table===table);
+  if(!own.length)return;
+  text("h3","What this suggests");
+  for(const h of own){const p=text("p",`${h.title}: ${h.action}`);p.title=`${h.evidence}\nCaveat: ${h.caveat}`;}
+  note("Hover a suggestion for its evidence and caveat. Full list in 'Where to start optimizing' below.");
+}
 function queryLinks(ids) {
   text("h3", `Supporting queries (${ids.length})`);
   const container = document.createElement("div"); container.id="query-links";
@@ -137,6 +192,17 @@ function showEdge(edge) {
   text("pre", edge.joined_columns ? edge.joined_columns.join("\n") : edge.label);
   text("p", `Join types (occurrences): ${JSON.stringify(edge.join_type_summary)}. Resolution: ${edge.resolution_status}. Self-join: ${edge.self_join}.`);
   if (edge.conditional_occurrence_count) text("p", `${edge.conditional_occurrence_count} occurrences under OR/NOT: relationships are syntactic, not guaranteed to hold for every row.`);
+  if (edge.grouping_levels) {
+    text("h3","Aggregation levels of queries using this join");
+    note("Each line is one GROUP BY clause, translated to a level per table (e.g. date_dim: year). Counts are distinct queries; a query with several GROUP BYs (CTEs, UNION branches) counts once per distinct level.");
+    if(edge.grouping_levels.length)bars(edge.grouping_levels.map(g=>({label:g.signature,count:g.query_count,title:`${g.signature}\n${g.query_ids.join(", ")}`})));
+    else text("p","No GROUP BY in the supporting queries.");
+    if(edge.no_group_by_query_count)text("p",`${edge.no_group_by_query_count} supporting queries have no GROUP BY (detail rows or a single global aggregate).`);
+    for(const [table,levels] of Object.entries(edge.endpoint_group_levels||{})){
+      if(!levels.length)continue;
+      text("p",`${table} grouped at: ${levels.map(l=>`${l.level} (${l.query_count})`).join(", ")}`);
+    }
+  }
   if (edge.plan_metrics) {
     const m=edge.plan_metrics;
     text("h3","Estimated join-operator output rows");
@@ -163,9 +229,84 @@ function showEdge(edge) {
 function showNode(node) {
   $("details").replaceChildren();
   text("h2",node.table);
-  text("p",`${node.reference_type}; ${node.query_count} referencing queries; ${node.join_query_count} joining queries; ${node.join_occurrence_count} join occurrences; ${node.degree} distinct other neighbors.`);
+  const u=tableUsage[node.table];
+  text("p",`${node.reference_type}${u?`, ${u.fact_table?"fact":"dimension"} table`:""}${u&&u.table_rows!=null?`, ${number(u.table_rows)} rows`:""}; ${node.query_count} referencing queries; ${node.join_query_count} joining queries; ${node.degree} distinct neighbors.`);
+  if(u){
+    text("h3","Aggregation granularity (GROUP BY)");
+    if(u.group_level_summary.length){
+      bars(u.group_level_summary.map(l=>({label:l.level,count:l.query_count,title:l.query_ids.join(", ")})));
+      note("Finest level each query groups this table by. Exact column combinations:");
+      bars(u.group_levels.map(l=>({label:`${l.level}: ${l.columns.join(", ")}`,count:l.query_count,title:l.query_ids.join(", ")})));
+    } else text("p","No query groups by columns of this table.");
+    text("p",`${u.not_grouped_by_table_query_count} other queries aggregate across this table (they GROUP BY other tables only); ${u.no_group_by_query_count} have no GROUP BY.`);
+    if(u.filter_level_summary.length){
+      text("h3","Filter granularity (WHERE / ON with a value)");
+      bars(u.filter_level_summary.map(l=>({label:l.level,count:l.query_count,title:l.query_ids.join(", ")})));
+      note("A pre-aggregated summary must keep filter columns too: a query filtering by month cannot use a yearly summary.");
+    }
+    if(u.top_filter_columns.length){text("h3","Most filtered columns (index candidates)");columnBars(u.top_filter_columns.map(c=>({...c,table:node.table})));}
+    if(u.top_aggregated_columns.length){text("h3","Most aggregated columns (SUM/AVG/COUNT/...)");columnBars(u.top_aggregated_columns.map(c=>({...c,table:node.table})));}
+    if(u.top_join_columns.length){text("h3","Join columns");columnBars(u.top_join_columns.map(c=>({...c,table:node.table})));}
+    const fg=(data.fact_grains||[]).find(f=>f.table===node.table);
+    if(fg){
+      text("h3","Dimension levels needed by queries on this fact");
+      note("GROUP BY plus filter columns of each directly joined dimension. 'join only' = the dimension is joined but neither grouped nor filtered.");
+      bars(fg.dimension_levels.slice(0,15).map(d=>({label:`${d.dimension}: ${d.level}`,count:d.query_count,title:d.query_ids.join(", ")})));
+      text("p","Most common complete grains:");
+      bars(fg.top_signatures.slice(0,6).map(g=>({label:g.signature,count:g.query_count,title:g.query_ids.join(", ")})));
+    }
+    text("h3","Existing indexes");
+    if(u.existing_indexes.length)for(const i of u.existing_indexes)text("p",`${i.name} (${i.kind}; ${i.source}): ${i.keys.length?`keys ${i.keys.join(", ")}`:""}${i.include.length?` ${i.keys.length?"include":"columns"} ${i.include.join(", ")}`:""}`);
+    else text("p","None known (schema primary keys and the indexing script).");
+    hintsFor(node.table);
+  }
   queryLinks(data.query_table_references.filter(r=>r.table===node.table).map(r=>r.query_id));
 }
+function showColumn(r){
+  $("details").replaceChildren();
+  text("h2",`${r.table}.${r.column}`);
+  text("p",`${r.fact_table?"Fact":"Dimension"} table${r.table_rows!=null?` with ${number(r.table_rows)} rows`:""}.${r.hierarchy_level?` Hierarchy level: ${r.hierarchy_level}.`:""} Existing indexes: ${indexText(r)}.`);
+  const roles=[["Filtered",r.filter_query_ids,Object.entries(r.filter_kinds).map(([k,v])=>`${k.replace("_"," ")} ×${v}`).join(", ")],
+    ["Grouped",r.group_by_query_ids,""],["Aggregated",r.aggregate_query_ids,Object.entries(r.aggregate_functions).map(([k,v])=>`${k.toUpperCase()} ×${v}`).join(", ")],["Joined",r.join_query_ids,""]];
+  for(const [name,ids,detail] of roles){
+    if(!ids.length)continue;
+    text("h3",`${name} in ${ids.length} queries${detail?` (${detail})`:""}`);
+    const container=document.createElement("div");
+    for(const id of ids){const a=document.createElement("a");a.textContent=id;a.href=data.query_reports[id];a.target="_blank";a.rel="noopener";a.style.marginRight="8px";container.appendChild(a);}
+    $("details").appendChild(container);
+  }
+  $("details").scrollIntoView({block:"nearest"});
+}
+function drawHints(){
+  $("hint-cards").replaceChildren();
+  for(const h of hints){
+    const card=document.createElement("div");card.className=`card ${h.kind}`;
+    text("h4",h.title,card);text("p",h.evidence,card);
+    const t=text("p","",card);const b=document.createElement("b");b.textContent="Try: ";t.append(b,h.action);
+    const c=text("p","",card);c.className="note";c.textContent=`Caveat: ${h.caveat}`;
+    if(h.query_ids.length){
+      card.style.cursor="pointer";card.title="Show supporting queries";
+      card.addEventListener("click",()=>{$("details").replaceChildren();text("h2",h.title);text("p",h.evidence);text("p",`Try: ${h.action}`);queryLinks(h.query_ids);$("details").scrollIntoView({block:"nearest"});});
+    }
+    $("hint-cards").appendChild(card);
+  }
+}
+function drawUsage(){
+  const field=$("usage-sort").value, search=$("usage-search").value.toLowerCase().trim();
+  $("usage-table").replaceChildren();
+  const rows=usageRows.filter(r=>!search||`${r.table}.${r.column}`.includes(search))
+    .sort((a,b)=>b[field]-a[field]||`${a.table}.${a.column}`.localeCompare(`${b.table}.${b.column}`));
+  for(const r of rows){
+    const tr=document.createElement("tr");
+    text("td",`${r.table}.${r.column}`,tr);
+    for(const k of ["filter_query_count","group_by_query_count","aggregate_query_count","join_query_count"])text("td",r[k]||"",tr).className="num";
+    text("td",r.table_rows==null?"?":number(r.table_rows),tr).className="num";
+    text("td",r.existing_indexes.join("; "),tr);
+    tr.addEventListener("click",()=>showColumn(r));$("usage-table").appendChild(tr);
+  }
+}
+$("usage-sort").addEventListener("input",drawUsage);$("usage-search").addEventListener("input",drawUsage);
+drawHints();drawUsage();
 function draw() {
   const minimum = Math.max(0,Number($("minimum").value)||0);
   const search = $("search").value.toLowerCase().trim(), uncertain=$("uncertain").checked;
