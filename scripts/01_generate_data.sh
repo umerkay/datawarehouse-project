@@ -10,6 +10,8 @@ NO_PARALLEL=false
 ONLY_QUERIES=false
 SPLIT_QUERIES=false
 
+SEED=56
+
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --no-recompile)
@@ -91,7 +93,7 @@ for size in "${SIZES[@]}"; do
         -QUALIFY Y \
         -SCALE "${size}" \
         -DIALECT sqlserver \
-        -RNGSEED 56 \
+        -RNGSEED $SEED \
         -OUTPUT_DIR "$queryset_dir"
 
     # Assuming generated file is named query_0.sql containing all queries
@@ -129,14 +131,23 @@ for size in "${SIZES[@]}"; do
     fi
 
     if [ "$NO_PARALLEL" = true ]; then
-        ./dsdgen -scale "$size" -dir "$dataset_dir" -force
+        ./dsdgen \
+            -SCALE "$size" \
+            -DIR "$dataset_dir" \
+            -RNGSEED $SEED \
+            -FORCE
         continue
     fi
 
     child_pids=()
     for ((child = 1; child <= PARALLELISM; child++)); do
-        ./dsdgen -scale "$size" -dir "$dataset_dir" -force \
-            -parallel "$PARALLELISM" -child "$child" &
+        ./dsdgen \
+            -SCALE "$size" \
+            -DIR "$dataset_dir" \
+            -RNGSEED $SEED \
+            -PARALLEL "$PARALLELISM" \
+            -CHILD "$child" \
+            -FORCE &
         child_pids+=("$!")
     done
 
