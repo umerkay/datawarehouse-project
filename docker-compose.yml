@@ -13,6 +13,7 @@ services:
       - tpcds_shared_data:/workspace
       - ./tpcds-kit:/tpcds-kit
       - ./scripts:/scripts
+      - ./query_analyzer:/query_analyzer
       - ./data:/data
       - ./benchmark_results:/benchmark_results
       - mssql_data:/var/opt/mssql
@@ -30,6 +31,7 @@ services:
       - tpcds_shared_data:/workspace
       - ./tpcds-kit:/tpcds-kit
       - ./scripts:/scripts
+      - ./query_analyzer:/query_analyzer
       - ./data:/data
 
 volumes:

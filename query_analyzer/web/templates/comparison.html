@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Plan comparison - TPC-DS</title>
+<link rel="stylesheet" href="assets/comparison.css">
+</head>
+<body>
+<header>
+<h1>Execution plan comparison</h1>
+<p>Compare one query across 1 GB, 2 GB, 5 GB and 10 GB. Spot structural changes and growth in measured duration.</p>
+</header>
+<main>
+<!--__NAV__-->
+<div class="coverage">
+<!--__COVERAGE__-->
+</div>
+<div class="notice">Plans and timings are separate sources. Historical timings are matched by query filename, not by a verified SQL fingerprint. Missing plans are shown explicitly; plans are never inferred from timings. To compare causally, verify the same SQL, indexes, statistics policy and server settings across sizes.</div>
+<!--__ERRORS__-->
+<section class="panel">
+<h2>Plan change map</h2>
+<p>Explore all queries at a glance. Each row compares captured structures against its first available plan, from the smallest dataset. Click a cell to inspect the query.</p>
+<div class="toolbar" id="plan-map-controls" hidden>
+<label>Show <select id="plan-map-filter"><option value="all">All queries</option><option value="changed">With structural changes</option><option value="same">With a matching structure</option><option value="sql">With different captured SQL</option><option value="missing">With missing plans</option></select></label>
+<label>Search <input id="plan-map-search" type="search" placeholder="query_015"></label>
+</div>
+<p class="muted">Teal: reference. Blue: same structure. Orange: changed structure. Grey: no plan. Structure includes operator types, branch order, tables and indexes; estimates and costs are excluded. A change is not automatically a regression.</p>
+<p id="plan-map-status" role="status"></p>
+<div class="plan-map-scroll"><table class="plan-map"><thead><tr><th>Query</th><th>1GB</th><th>2GB</th><th>5GB</th><th>10GB</th></tr></thead><tbody id="plan-map-rows"><!--__PLAN_MATRIX__--></tbody></table></div>
+</section>
+<section class="panel" id="workload-panel" hidden>
+<h2>Workload explorer</h2>
+<p>Find where to start across all queries. Click a bar to open its detailed comparison.</p>
+<div class="toolbar workload-controls">
+<label>Dataset <select id="workload-scale"><option>1GB</option><option selected>2GB</option><option>5GB</option><option>10GB</option></select></label>
+<label>Compare by <select id="workload-metric"><option value="time">Historical duration</option><option value="growth">Duration relative to 1 GB</option><option value="indexes">Distinct index candidates</option><option value="warnings">Plan warning findings</option></select></label>
+<label>Order <select id="workload-order"><option value="desc">Highest first</option><option value="asc">Lowest first</option></select></label>
+<label>Show <select id="workload-limit"><option value="all">All queries</option><option value="10">Top 10</option><option value="20">Top 20</option><option value="40">Top 40</option></select></label>
+<label>Search <input id="workload-search" type="search" placeholder="query_015"></label>
+</div>
+<p id="workload-status" class="muted" role="status"></p>
+<p class="muted">Bars share a zero-based linear scale. Growth = selected duration / 1 GB duration; it requires a positive baseline. Index candidates are deduplicated within each plan. Warnings count analyzer findings, not recommendations or proven problems. Missing evidence is excluded, never counted as zero. Historical runs may differ in SQL and cache conditions.</p>
+<div id="workload-bars" class="workload-bars" aria-label="Query ranking"></div>
+</section>
+<script type="application/json" id="workload-data"><!--__WORKLOAD_DATA__--></script>
+<section class="panel">
+<h2>Select a query</h2>
+<div class="toolbar" id="comparison-controls" hidden>
+<label for="query-select">Query</label>
+<select id="query-select">
+<!--__OPTIONS__-->
+</select>
+</div>
+<noscript>All query comparisons are shown below. Enable JavaScript to select one at a time.</noscript>
+<p class="muted">Plan structure compares operation types, branch order and accessed indexes. Costs, row estimates, node IDs and database names are excluded, so a change in size alone does not imply a different structure. Different captured SQL is flagged separately.</p>
+</section>
+<details class="panel">
+<summary>All historical timings - select a query</summary>
+<label for="query-search">Search query</label> <input id="query-search" placeholder="query_015">
+<div class="scroll">
+<table>
+<thead>
+<tr>
+<th>Query</th>
+<th>1 GB</th>
+<th>2 GB</th>
+<th>5 GB</th>
+<th>10 GB</th>
+</tr>
+</thead>
+<tbody id="timing-rows">
+<!--__QUERIES__-->
+</tbody>
+</table>
+</div>
+</details>
+<!--__SECTIONS__-->
+<p class="muted">Counts describe plan operators, not execution time. A different plan is not automatically worse; an identical plan can scale poorly. Capture and benchmark the relevant sizes before choosing an optimization.</p>
+</main>
+<script src="assets/comparison.js" defer>
+</script>
+</body>
+</html>

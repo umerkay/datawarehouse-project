@@ -1,0 +1,9 @@
+<ShowPlanXML xmlns="http://schemas.microsoft.com/sqlserver/2004/07/showplan"><BatchSequence><Batch><Statements>
+<StmtSimple StatementId="1" StatementText="SELECT &lt;test&gt;" StatementSubTreeCost="2"><QueryPlan>
+<MissingIndexes><MissingIndexGroup Impact="70"><MissingIndex Database="[db]" Schema="[dbo]" Table="[sales]">
+<ColumnGroup Usage="EQUALITY"><Column Name="[item]"/></ColumnGroup></MissingIndex></MissingIndexGroup></MissingIndexes>
+<RelOp NodeId="0" PhysicalOp="Clustered Index Scan" EstimateRows="20000" EstimateIO="1" EstimateCPU="0.2">
+<RunTimeInformation><RunTimeCountersPerThread Thread="0" ActualRows="100" ActualExecutions="2"/>
+<RunTimeCountersPerThread Thread="1" ActualRows="100" ActualExecutions="2"/></RunTimeInformation>
+<Warnings><SpillToTempDb SpillLevel="1"/></Warnings><IndexScan><Object Table="[sales]" Index="[PK_sales]"/></IndexScan>
+</RelOp></QueryPlan></StmtSimple></Statements></Batch></BatchSequence></ShowPlanXML>

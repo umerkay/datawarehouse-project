@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Optimization radar - TPC-DS</title>
+<link rel="stylesheet" href="assets/dashboard.css">
+</head>
+<body>
+<header>
+<div class="eyebrow">TPC-DS / SQL Server</div>
+<h1>Optimization radar<!--__SCALE__-->
+</h1>
+<p>Your entire workload in one view: where to start, recurring patterns, and hypotheses to test.</p>
+</header>
+<main>
+<!--__DATASETS__-->
+<!--__STATUS__-->
+<div class="cards">
+<!--__CARDS__-->
+</div>
+<noscript>
+<div class="notice">All results are visible. Enable JavaScript only if you want to use search and filters.</div>
+</noscript>
+<div class="grid">
+<section class="panel">
+<h2>01 - Where to start</h2>
+<p class="muted">
+<!--__BASIS__-->
+</p>
+<div>
+<!--__RANKING__-->
+</div>
+<p>
+<!--__CONCENTRATION__-->
+</p>
+</section>
+<section class="panel">
+<h2>02 - Recurring signals</h2>
+<!--__PATTERNS__-->
+<p class="muted">Categories may overlap. These are investigation signals; scans and hash joins can be appropriate.</p>
+<h3>Next steps</h3>
+<ol class="steps">
+<!--__STEPS__-->
+</ol>
+</section>
+</div>
+<section class="panel">
+<h2>03 - Shared index candidates</h2>
+<p class="muted">Grouped by table and exact columns, counting distinct queries. Look for changes that could benefit multiple queries. Suggested impact percentages are not added together.</p>
+<div class="scroll">
+<!--__INDEXES__-->
+</div>
+</section>
+<section class="panel">
+<h2>04 - Explore queries</h2>
+<div class="toolbar" id="query-controls" hidden>
+<input id="search" aria-label="Search query or table" placeholder="Search query or table...">
+<select id="filter" aria-label="Filter by signal">
+<option value="all">All signals</option>
+<option value="missing">Index candidate</option>
+<option value="scan">Large scan</option>
+<option value="warning">Engine warning</option>
+<option value="cardinality">Row estimate mismatch</option>
+<option value="work">Sort / hash / spool</option>
+</select>
+</div>
+<div class="scroll">
+<!--__QUERIES__-->
+</div>
+</section>
+<section class="panel">
+<h2>05 - Technical evidence (optional)</h2>
+<p class="muted">Open only the query you want to investigate.</p>
+<!--__DETAILS__-->
+</section>
+<p class="muted">No changes are applied. Compare candidates against existing indexes and measure on a copy with the same dataset and warm-up. A regular view does not materialize results; indexed views require checking eligibility, storage, and maintenance costs.</p>
+</main>
+<script src="assets/dashboard.js" defer>
+</script>
+</body>
+</html>

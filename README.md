@@ -1,6 +1,6 @@
 # TPC-DS SQL Server Benchmark
 
-This project provides a reproducible, two-container environment for running a TPC-DS benchmark against SQL Server. 
+This project provides a reproducible, two-container environment for running a TPC-DS benchmark against SQL Server.
 
 To guarantee perfect reproducibility across different host operating systems, the architecture is strictly isolated:
 * **`tpcds_workspace` (Ubuntu):** Provides an isolated Linux build environment to compile the TPC-DS C-code and generate the raw data, preventing OS-level compilation issues (like macOS Apple Silicon constraints).
@@ -135,6 +135,22 @@ Estimated-plan companions are available for the [baseline database](tools/join_g
 Each graph also analyzes **how** tables are used. Clicking a table shows its most filtered columns (index candidates), aggregated measures (columnstore candidates), GROUP BY granularity (for example `date_dim` grouped by day, month or year, which helps decide on materialized summaries) and existing indexes. Clicking a join shows the aggregation levels of the queries that use it. The **Where to start optimizing** section at the bottom of each page lists rule-based hints with supporting queries and a searchable column-usage table. These hints are hypotheses to test with `05_apply_indexing.sh` and the benchmark, not automatic recommendations.
 
 ---
+
+## Analyze query execution plans
+
+The shareable offline analyzer is in [`query_analyzer/`](query_analyzer/README.md).
+It includes captured plans for 1GB, 2GB and 5GB, historical timing summaries, and
+instructions for additional captures. The 10GB plans are pending. No raw datasets
+or SQL connection are needed for the website.
+
+```bash
+python -B -m query_analyzer build
+python -m http.server 8000 --directory query_analyzer/site
+```
+
+Open **http://localhost:8000/** or `query_analyzer/site/index.html`.
+See the [contribution guide](query_analyzer/CONTRIBUTING.md) to add plans and the
+[tool README](query_analyzer/README.md) for tests and optional GitHub Pages publishing.
 
 ## Resetting the Environment
 

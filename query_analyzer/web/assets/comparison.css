@@ -1,0 +1,382 @@
+/* Base layout, navigation and shared components. */
+* {
+  box-sizing: border-box;
+}
+body {
+  font: 15px system-ui,sans-serif;
+  margin: 0;
+  background: #f3f6fa;
+  color: #172b40;
+}
+header {
+  background: #102b42;
+  color: white;
+  padding: 30px max(24px,calc((100vw - 1400px)/2));
+}
+header p {
+  color: #c2d4e3;
+}
+h1 {
+  margin: 10px 0;
+  font-size: 30px;
+}
+h2 {
+  font-size: 22px;
+}
+h3 {
+  margin-top: 0;
+}
+main {
+  max-width: 1448px;
+  padding: 24px;
+  margin: auto;
+}
+nav {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+nav a {
+  color: #9fe4db;
+}
+a {
+  color: #16638d;
+}
+.coverage,.plans {
+  display: grid;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  gap: 16px;
+}
+.card,.panel {
+  border: 1px solid #dae3ec;
+  border-radius: 12px;
+  padding: 20px;
+  background: white;
+  margin-bottom: 20px;
+}
+.card>b {
+  font-size: 25px;
+}
+.muted,small {
+  color: #536b80;
+  overflow-wrap: anywhere;
+}
+.notice {
+  padding: 16px;
+  border-left: 4px solid #df8a40;
+  background: #fff6e9;
+  margin: 16px 0;
+}
+.barrow {
+  display: grid;
+  grid-template-columns: 60px 1fr 120px;
+  gap: 14px;
+  align-items: center;
+  margin: 14px 0;
+}
+.track {
+  background: #edf2f7;
+  height: 20px;
+  border-radius: 4px;
+}
+.bar {
+  background: #108879;
+  height: 100%;
+  border-radius: 4px;
+}
+.badge {
+  display: inline-block;
+  background: #e8f3f1;
+  padding: 7px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+}
+.mix {
+  display: flex;
+  height: 18px;
+  gap: 2px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.card li {
+  margin: 7px 0;
+}
+select,input {
+  font: inherit;
+  padding: 10px;
+  border: 1px solid #b9cbd8;
+  border-radius: 6px;
+  max-width: 100%;
+}
+.toolbar {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.toolbar[hidden],[hidden] {
+  display: none!important;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+th,td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid #e3eaf1;
+}
+th {
+  background: #edf2f7;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+.scroll {
+  overflow: auto;
+  max-height: 350px;
+}
+summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 12px 0;
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #edf2f7;
+  padding: 12px;
+  max-height: 320px;
+  overflow: auto;
+}
+.tree {
+  overflow: auto;
+  max-height: 450px;
+  font-size: 12px;
+}
+.tree ul {
+  padding-left: 16px;
+  border-left: 1px solid #bbd0dc;
+  list-style: none;
+}
+.tree li {
+  padding: 5px 0;
+}
+.tree span {
+  display: block;
+  background: #edf4f8;
+  padding: 7px;
+  border-radius: 4px;
+}
+.tree small {
+  display: block;
+}
+.query-comparison {
+  scroll-margin-top: 20px;
+}
+.query-comparison h2 {
+  border-top: 2px solid #d7e2eb;
+  padding-top: 20px;
+}
+
+/* Plan structure map and operator comparison. */
+
+.plan-map-scroll {
+  max-height: 480px;
+  overflow: auto;
+}
+.plan-map {
+  min-width: 640px;
+}
+.plan-map thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.plan-cell {
+  display: block;
+  padding: 10px;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+.plan-cell small {
+  display: block;
+  color: inherit;
+  margin-top: 5px;
+}
+.plan-cell.reference {
+  background: #d9f1ec;
+  color: #125e53;
+}
+.plan-cell.same {
+  background: #e1edf9;
+  color: #215684;
+}
+.plan-cell.changed {
+  background: #ffead0;
+  color: #7e4608;
+}
+.plan-cell.missing {
+  background: #edf0f3;
+  color: #536576;
+}
+.plan-cell:focus-visible,.plan-cell:hover {
+  outline: 2px solid currentColor;
+}
+.operator-scroll {
+  overflow: auto;
+}
+.operator-chart {
+  min-width: 700px;
+  table-layout: fixed;
+}
+.operator-chart caption {
+  text-align: left;
+  padding: 12px 0;
+  color: #536b80;
+}
+.operator-chart th:first-child {
+  width: 24%;
+}
+.operator-chart tbody th {
+  text-transform: none;
+  font-size: 13px;
+}
+.operator-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.operator-track {
+  display: block;
+  flex: 1;
+  background: #edf2f7;
+  height: 16px;
+}
+.operator-bar {
+  display: block;
+  height: 100%;
+}
+.operator-value b {
+  min-width: 25px;
+  text-align: right;
+}
+.scale-1GB {
+  background: #108879;
+}
+.scale-2GB {
+  background: #3876b5;
+}
+.scale-5GB {
+  background: #b46b25;
+}
+.scale-10GB {
+  background: #9659a3;
+}
+
+/* Workload ranking and filters. */
+
+.workload-controls label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+.workload-bars {
+  max-height: 540px;
+  overflow: auto;
+  padding: 4px;
+}
+.workload-row {
+  display: grid;
+  grid-template-columns: 100px minmax(100px,1fr) 110px;
+  gap: 14px;
+  align-items: center;
+  padding: 9px 6px;
+  text-decoration: none;
+  border-bottom: 1px solid #edf2f7;
+}
+.workload-row:hover,.workload-row:focus-visible {
+  background: #e8f3f1;
+  outline: 2px solid #108879;
+  outline-offset: -2px;
+}
+.workload-row .bar {
+  display: block;
+}
+.workload-row b {
+  text-align: right;
+  font-size: 13px;
+}
+
+/* Per-query historical duration chart. */
+.duration-figure {
+  margin: 12px 0;
+}
+.chart-scroll {
+  overflow-x: auto;
+}
+.duration-chart {
+  display: block;
+  width: 100%;
+  min-width: 520px;
+  height: auto;
+}
+.chart-grid {
+  stroke: #e0e8ef;
+  stroke-width: 1;
+}
+.chart-tick, .chart-axis-title {
+  fill: #536b80;
+  font-size: 13px;
+}
+.chart-axis-title {
+  font-weight: 600;
+}
+.chart-line {
+  fill: none;
+  stroke: #108879;
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+.chart-area {
+  fill: #108879;
+  opacity: 0.07;
+}
+.chart-point {
+  fill: white;
+  stroke: #108879;
+  stroke-width: 3;
+}
+.chart-value {
+  fill: #125e53;
+  font-size: 13px;
+  font-weight: 600;
+}
+.chart-missing {
+  fill: #87520c;
+  font-size: 12px;
+}
+.duration-figure figcaption {
+  margin-top: 8px;
+  color: #536b80;
+  font-size: 13px;
+}
+
+/* Responsive layout. */
+@media(max-width:1100px) {
+  .plans,.coverage {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+}
+@media(max-width:650px) {
+  .plans,.coverage {
+    grid-template-columns: 1fr;
+  }
+  main {
+    padding: 14px;
+  }
+  .barrow {
+    grid-template-columns: 45px 1fr 100px;
+  }
+}

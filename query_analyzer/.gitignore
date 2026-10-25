@@ -1,0 +1,25 @@
+# Only the documented diagnostic inputs belong in the shared datasets folder.
+/datasets/*
+!/datasets/README.md
+!/datasets/sources.json
+!/datasets/1GB/
+!/datasets/2GB/
+!/datasets/5GB/
+!/datasets/10GB/
+/datasets/*/*
+!/datasets/*/plans.zip
+!/datasets/*/timings.csv
+
+# Generated pages, local evidence and operational scripts stay on this machine.
+/site/
+/inputs/
+/local_tools/
+__pycache__/
+*.py[cod]
+*.tmp
+*.failed.txt
+# Loose captures are excluded by the datasets allowlist above.
+# index.html is the shared Live Server entry; old generated reports stay local.
+/report*.html
+/comparison.html
+/analysis*.json

@@ -1,0 +1,29 @@
+name: Query analyzer checks
+
+on:
+  push:
+    paths: ["query_analyzer/**", ".github/workflows/query-analyzer-*.yml"]
+  pull_request:
+    paths: ["query_analyzer/**", ".github/workflows/query-analyzer-*.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -B -m unittest discover -s query_analyzer/tests -v
+      - run: bash -n query_analyzer/scripts/capture_plans.sh
+      - run: node --check query_analyzer/web/assets/dashboard.js && node --check query_analyzer/web/assets/comparison.js
+      - run: python -B -m query_analyzer build

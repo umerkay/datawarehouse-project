@@ -1,0 +1,18 @@
+{
+  "1GB": {
+    "plans": "1GB/plans.zip",
+    "summary": "1GB/timings.csv"
+  },
+  "2GB": {
+    "plans": "2GB/plans.zip",
+    "summary": "2GB/timings.csv"
+  },
+  "5GB": {
+    "plans": "5GB/plans.zip",
+    "summary": "5GB/timings.csv"
+  },
+  "10GB": {
+    "plans": "10GB/plans.zip",
+    "summary": "10GB/timings.csv"
+  }
+}

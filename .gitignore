@@ -5,9 +5,18 @@
 .vscode
 
 # Ignore all generated flat files and data directories
-data/
-benchmark_results/
-tpcds_shared_data/
+/data/
+/benchmark_results/
+/tpcds_shared_data/
+/results/
+
+# Raw table data and SQL Server storage/backups, wherever created.
+*.dat
+*.mdf
+*.ndf
+*.ldf
+*.bak
+*.trn
 
 # Ignore generated SQL queries
 tpcds-kit/queries/
@@ -20,3 +29,8 @@ tpcds-kit/tools/checksum
 
 # Ignore secrets
 .env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+/proyecto*.zip
