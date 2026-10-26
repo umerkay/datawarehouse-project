@@ -56,7 +56,7 @@ docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01
 
 ### 4. Apply the analytical indexing strategy
 
-For an optimized comparison, load the same scale factor into a separate database and apply the reproducible strategy in `scripts/indexing_strategy.sql`. The strategy uses nonclustered columnstore indexes because the schema already creates clustered primary-key indexes on the fact tables. Index creation and statistics updates happen before benchmarking and are not included in query timings.
+For an optimized comparison, load the same scale factor into a separate database and apply the reproducible strategy in `scripts/indexing_strategy.sql`. The strategy keeps the schema's clustered primary keys, creates covering nonclustered columnstore indexes on all seven fact tables, and adds a small set of selective rowstore indexes for dimension filters and return anti-joins. Fact statistics use a 10% sample while small dimensions use `FULLSCAN`, keeping preparation cost practical as scale grows. Index creation and statistics updates happen before benchmarking and are not included in query timings.
 
 ```bash
 docker exec -it tpcds_sqlserver \
@@ -68,16 +68,32 @@ docker exec -it tpcds_sqlserver \
 
 The strategy is idempotent and can be reapplied safely. Keep an unindexed database, such as `tpcds_01`, for baseline comparisons.
 
+#### Measured engineering result (2026-10-26)
+
+On the local SQL Server 2022 Docker environment, one complete measured pass of the 103 generated queries produced:
+
+| Database | Scale | Full-suite elapsed time | Relative result |
+| --- | ---: | ---: | ---: |
+| `tpcds_sf1_baseline` | 1GB | 633.975 s | baseline |
+| `tpcds_sf1_optimized` | 1GB | 65.636 s | 9.66x faster; 89.6% less time |
+| `tpcds_sf2_optimized` | 2GB | 89.185 s | 1.36x the optimized 1GB time |
+
+These are internal, single-pass engineering measurements, not official or publication-comparable TPC benchmark results. Use the default five measured repetitions below for final reporting. The optimized 1GB database allocated 2,448 MB versus 1,744 MB for the baseline: about 704 MB (40.4%) additional space in this run.
+
 ### 5. Run the Benchmark
 
 Execute the benchmark script against the populated database. This script runs directly inside the SQL Server container.
 
-**Protocol:** The script requires and reads only `/data/<SCALE_FOLDER>/queryset/benchmark.sql`. It runs this benchmark **6 times**. The first run is discarded to allow for buffer pool warm-up, and the remaining 5 runs are averaged. Execution times are tracked with millisecond precision.
+**Protocol:** The script requires and reads only `/data/<SCALE_FOLDER>/queryset/benchmark.sql`. By default it runs this benchmark **6 times**. The first run is discarded to allow for buffer pool warm-up, and the remaining 5 runs are averaged. Execution times are tracked with millisecond precision. For short tuning experiments, override `WARMUP_RUNS` and `MEASURED_RUNS`; defaults remain 1 and 5.
 
 **Usage:** `bash /scripts/03_run_benchmark.sh <SCALE_FOLDER> <DB_NAME>`
 
 ```bash
 docker exec -it tpcds_sqlserver bash /scripts/03_run_benchmark.sh 1GB tpcds_01
+
+# One-pass engineering experiment (not the final reporting protocol)
+docker exec -e WARMUP_RUNS=0 -e MEASURED_RUNS=1 \
+  tpcds_sqlserver bash /scripts/03_run_benchmark.sh 1GB tpcds_01
 
 ```
 
@@ -103,7 +119,11 @@ docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01
 
 ```
 
-**SQL Server compatibility note:** Q23 (generated from `query22.tpl`) casts `inv_quantity_on_hand` to `decimal(19,4)` before `AVG`; without this cast, SQL Server reports an integer overflow for the 5GB and 10GB datasets.
+**SQL Server compatibility notes:**
+
+* Q23 (generated from `query22.tpl`) casts `inv_quantity_on_hand` to `decimal(19,4)` before `AVG`; without this cast, SQL Server reports an integer overflow for the 5GB and 10GB datasets.
+* The channel-comparison query generated from `query78.tpl` pushes its final year into each channel CTE and uses a hash-join hint. This prevents a severe nested-loop cardinality regression observed at 2GB (about 6.56 million logical reads versus about 9 thousand at 1GB before the fix).
+* The AM/PM ratio generated from `query90.tpl` uses `NULLIF` for the denominator. Non-official small scale factors can legitimately produce zero matching PM rows; the original expression aborted the whole suite with divide-by-zero.
 
 Each profiling run creates a timestamped directory under `benchmark_results/` containing:
 

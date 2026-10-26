@@ -78,6 +78,15 @@ RESULTS_DIR=${RESULTS_DIR:-/benchmark_results}
 SQLCMD_BIN=${SQLCMD_BIN:-/opt/mssql-tools18/bin/sqlcmd}
 SA_PASS=${MSSQL_SA_PASSWORD:-}
 QUERY_LIST="$QUERY_DIR/queries.lst"
+WARMUP_RUNS=${WARMUP_RUNS:-1}
+MEASURED_RUNS=${MEASURED_RUNS:-5}
+
+if [[ ! "$WARMUP_RUNS" =~ ^[0-9]+$ ]] || [[ ! "$MEASURED_RUNS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: WARMUP_RUNS must be >= 0 and MEASURED_RUNS must be >= 1." >&2
+    exit 1
+fi
+
+TOTAL_RUNS=$((WARMUP_RUNS + MEASURED_RUNS))
 
 if [ ! -f "$QUERY_LIST" ]; then
     echo "Warning: Query list not found: $QUERY_LIST" >&2
@@ -140,15 +149,15 @@ printf 'run,query_id,source_file,statement_number,duration_ms\n' > "$RAW_CSV"
 echo "=================================================="
 echo "Starting TPC-DS per-query profile against database: $DB_NAME"
 echo "Queries discovered: $STATEMENT_COUNT"
-echo "Protocol: 6 total runs (1 warm-up, 5 measured)"
+echo "Protocol: $TOTAL_RUNS total runs ($WARMUP_RUNS warm-up, $MEASURED_RUNS measured)"
 echo "Results: $RUN_RESULTS_DIR"
 echo "=================================================="
 
 TOTAL_SUM_MS=0
 
-for RUN in {1..6}; do
-    if [ "$RUN" -eq 1 ]; then
-        echo "Starting Run 1 (Warm-up - individual times will be discarded)..."
+for ((RUN = 1; RUN <= TOTAL_RUNS; RUN++)); do
+    if [ "$RUN" -le "$WARMUP_RUNS" ]; then
+        echo "Starting Run $RUN (Warm-up - individual times will be discarded)..."
     else
         echo "Starting Run $RUN (Measured)..."
     fi
@@ -170,29 +179,29 @@ for RUN in {1..6}; do
         
         IFS=$'\t' read -r query_id source_file statement_number statement_file \
             <<< "${STATEMENTS[$STATEMENT_INDEX]}"
-        printf '[Run %d/6] Executing query %d/%d: %s (%s, statement %d)\n' \
-            "$RUN" "$QUERY_INDEX" "$STATEMENT_COUNT" "$query_id" "$source_file" "$statement_number"
+        printf '[Run %d/%d] Executing query %d/%d: %s (%s, statement %d)\n' \
+            "$RUN" "$TOTAL_RUNS" "$QUERY_INDEX" "$STATEMENT_COUNT" "$query_id" "$source_file" "$statement_number"
         START_MS=$(date +%s%3N)
 
-        if "$SQLCMD_BIN" -b -S localhost -U sa -P "$SA_PASS" -C -d "$DB_NAME" \
+        if "$SQLCMD_BIN" -b -r1 -S localhost -U sa -P "$SA_PASS" -C -d "$DB_NAME" \
             -i "$statement_file" -o /dev/null; then
             END_MS=$(date +%s%3N)
             DURATION_MS=$((END_MS - START_MS))
-            printf '[Run %d/6] Completed %s in %dms\n' "$RUN" "$query_id" "$DURATION_MS"
+            printf '[Run %d/%d] Completed %s in %dms\n' "$RUN" "$TOTAL_RUNS" "$query_id" "$DURATION_MS"
         else
             SQLCMD_STATUS=$?
             END_MS=$(date +%s%3N)
             DURATION_MS=$((END_MS - START_MS))
-            printf >&2 '[Run %d/6] FAILED %s (%s, statement %d) after %dms; sqlcmd exit code: %d\n' \
-                "$RUN" "$query_id" "$source_file" "$statement_number" "$DURATION_MS" "$SQLCMD_STATUS"
+            printf >&2 '[Run %d/%d] FAILED %s (%s, statement %d) after %dms; sqlcmd exit code: %d\n' \
+                "$RUN" "$TOTAL_RUNS" "$query_id" "$source_file" "$statement_number" "$DURATION_MS" "$SQLCMD_STATUS"
             echo "Contents of query file:"
             cat "$statement_file"
             exit "$SQLCMD_STATUS"
         fi
 
-        if [ "$RUN" -gt 1 ]; then
+        if [ "$RUN" -gt "$WARMUP_RUNS" ]; then
             printf '%d,%s,%s,%d,%d\n' \
-                "$((RUN - 1))" "$query_id" "$source_file" "$statement_number" "$DURATION_MS" \
+                "$((RUN - WARMUP_RUNS))" "$query_id" "$source_file" "$statement_number" "$DURATION_MS" \
                 >> "$RAW_CSV"
         fi
     done
@@ -200,7 +209,7 @@ for RUN in {1..6}; do
     RUN_END_MS=$(date +%s%3N)
     RUN_DURATION_MS=$((RUN_END_MS - RUN_START_MS))
 
-    if [ "$RUN" -eq 1 ]; then
+    if [ "$RUN" -le "$WARMUP_RUNS" ]; then
         echo "  -> Warm-up completed in ${RUN_DURATION_MS}ms."
     else
         echo "  -> Run $RUN completed in ${RUN_DURATION_MS}ms."
@@ -238,7 +247,7 @@ done
 } > "$SUMMARY_CSV"
 
 MAX_AVERAGE_MS=$(awk -F, 'NR == 2 { print $5 }' "$SUMMARY_CSV")
-awk -F, -v max_average="$MAX_AVERAGE_MS" -v database="$DB_NAME" -v run_id="$RUN_ID" '
+awk -F, -v max_average="$MAX_AVERAGE_MS" -v database="$DB_NAME" -v run_id="$RUN_ID" -v measured_runs="$MEASURED_RUNS" '
     BEGIN {
         print "<!doctype html>"
         print "<html lang=\"en\"><head><meta charset=\"utf-8\">"
@@ -253,7 +262,7 @@ awk -F, -v max_average="$MAX_AVERAGE_MS" -v database="$DB_NAME" -v run_id="$RUN_
         print "tbody tr:nth-child(-n+10) .bar{background:#dc2626}"
         print "</style></head><body>"
         print "<h1>TPC-DS per-query benchmark</h1>"
-        printf "<p class=\"meta\">Database: <strong>%s</strong> | Run: %s | Five measured executions per query. Top 10 bars are highlighted.</p>\n", database, run_id
+        printf "<p class=\"meta\">Database: <strong>%s</strong> | Run: %s | Measured executions per query: %s. Top 10 bars are highlighted.</p>\n", database, run_id, measured_runs
         print "<table><thead><tr><th>Rank</th><th>Query</th><th>Average (ms)</th><th>% of total time</th><th>Min (ms)</th><th>Max (ms)</th><th class=\"chart\">Relative average</th></tr></thead><tbody>"
     }
     NR > 1 {
@@ -268,12 +277,12 @@ awk -F, -v max_average="$MAX_AVERAGE_MS" -v database="$DB_NAME" -v run_id="$RUN_
     }
 ' "$SUMMARY_CSV" > "$REPORT_HTML"
 
-AVERAGE_MS=$((TOTAL_SUM_MS / 5))
+AVERAGE_MS=$((TOTAL_SUM_MS / MEASURED_RUNS))
 AVERAGE_SEC=$(awk "BEGIN {printf \"%.3f\", $AVERAGE_MS/1000}")
 
 echo "=================================================="
 echo "Per-query profile completed for $DB_NAME!"
-echo "Total time for 5 measured runs : ${TOTAL_SUM_MS}ms"
+echo "Total time for $MEASURED_RUNS measured runs : ${TOTAL_SUM_MS}ms"
 echo "Average suite execution time   : ${AVERAGE_MS}ms (${AVERAGE_SEC}s)"
 echo "Ranked timing summary          : $SUMMARY_CSV"
 echo "Visual report                  : $REPORT_HTML"

@@ -1,0 +1,47 @@
+[1mdiff --git a/tpcds-kit/query_templates/query78.tpl b/tpcds-kit/query_templates/query78.tpl[m
+[1mindex e676ebe..88a3061 100644[m
+[1m--- a/tpcds-kit/query_templates/query78.tpl[m
+[1m+++ b/tpcds-kit/query_templates/query78.tpl[m
+[36m@@ -47,6 +47,7 @@[m [mwith ws as[m
+    left join web_returns on wr_order_number=ws_order_number and ws_item_sk=wr_item_sk[m
+    join date_dim on ws_sold_date_sk = d_date_sk[m
+    where wr_order_number is null[m
+[32m+[m[32m     and d_year=[YEAR][m
+    group by d_year, ws_item_sk, ws_bill_customer_sk[m
+    ),[m
+ cs as[m
+[36m@@ -59,6 +60,7 @@[m [mcs as[m
+    left join catalog_returns on cr_order_number=cs_order_number and cs_item_sk=cr_item_sk[m
+    join date_dim on cs_sold_date_sk = d_date_sk[m
+    where cr_order_number is null[m
+[32m+[m[32m     and d_year=[YEAR][m
+    group by d_year, cs_item_sk, cs_bill_customer_sk[m
+    ),[m
+ ss as[m
+[36m@@ -71,6 +73,7 @@[m [mss as[m
+    left join store_returns on sr_ticket_number=ss_ticket_number and ss_item_sk=sr_item_sk[m
+    join date_dim on ss_sold_date_sk = d_date_sk[m
+    where sr_ticket_number is null[m
+[32m+[m[32m     and d_year=[YEAR][m
+    group by d_year, ss_item_sk, ss_customer_sk[m
+    )[m
+ [_LIMITA] select [_LIMITB][m
+[36m@@ -91,4 +94,5 @@[m [morder by[m
+   other_chan_wholesale_cost,[m
+   other_chan_sales_price,[m
+   ratio[m
+[32m+[m[32moption (hash join)[m
+ [_LIMITC];[m
+[1mdiff --git a/tpcds-kit/query_templates/query90.tpl b/tpcds-kit/query_templates/query90.tpl[m
+[1mindex f274d7a..d68a2d5 100644[m
+[1m--- a/tpcds-kit/query_templates/query90.tpl[m
+[1m+++ b/tpcds-kit/query_templates/query90.tpl[m
+[36m@@ -37,7 +37,7 @@[m
+  define HOUR_PM = random(13,21,uniform);[m
+  define _LIMIT=100;[m
+  [m
+[31m- [_LIMITA] select [_LIMITB] cast(amc as decimal(15,4))/cast(pmc as decimal(15,4)) am_pm_ratio[m
+[32m+[m[32m [_LIMITA] select [_LIMITB] cast(amc as decimal(15,4))/nullif(cast(pmc as decimal(15,4)), 0) am_pm_ratio[m
+  from ( select count(*) amc[m
+        from web_sales, household_demographics , time_dim, web_page[m
+        where ws_sold_time_sk = time_dim.t_time_sk[m
