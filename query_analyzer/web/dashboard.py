@@ -3,6 +3,8 @@ import html
 import json
 from collections import Counter, defaultdict
 from .common import navigation, report_name, template
+from .plan_views import plan_tree, index_review
+from .strategies import cards as strategy_cards
 
 
 def esc(value):
@@ -56,6 +58,9 @@ def evidence(query):
         if mismatches:
             body += f'<li><b>Row estimates:</b> {len(mismatches)} operator(s) differ from actual rows by at least 10x. Review statistics and predicates.</li>'
         body += '</ul>'
+        body += plan_tree(stmt)
+        if missing:
+            body += index_review(missing, query.get('index_inventory'))
         if scan_groups:
             body += '<h4>Where the plan accesses tables</h4><p class="muted">Up to five tables, ranked by summed local estimated scan cost. Row counts are estimated output per operator, not disk reads.</p>'
             rows = [(name, len(items), f'{max(o["estimated_rows"] for o in items):,.0f}', f'{sum(o["local_cost"] for o in items):,.2f}') for name, items in scan_groups[:5]]
@@ -161,5 +166,8 @@ def render(payload, details):
     datasets = navigation(report_name(scale or '1GB'))
     replacements = dict(SCALE=esc(' - ' + scale if scale else ''), DATASETS=datasets, STATUS=status, CARDS=cards, BASIS=esc(basis), RANKING=bars or '<p>No valid plans.</p>',
                         CONCENTRATION=concentration, PATTERNS=patterns, STEPS=''.join('<li>' + esc(s) + '</li>' for s in steps),
-                        INDEXES=indexes, QUERIES=query_table, DETAILS=details)
-    return template('dashboard.html', replacements)
+                        STRATEGIES=strategy_cards(payload.get('strategies', [])), INDEXES=indexes, QUERIES=query_table, DETAILS=details)
+    page = template('dashboard.html', replacements)
+    if not any(s['actual'] for q in queries for s in q['statements']):
+        page = page.replace('<option value="cardinality">Row estimate mismatch</option>', '')
+    return page

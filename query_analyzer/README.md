@@ -187,6 +187,120 @@ in GitHub Actions. See [GitHub Pages workflow documentation](https://docs.github
 
 ## Interpretation limits
 
+### Overall analysis for the report
+
+Open **Overall analysis** from Home or `site/overall.html`. This is the main
+cross-dataset view; individual dataset reports are unchanged. It consolidates
+observations rather than presenting automatic strategy recommendations:
+
+- Shared sales-date-key MissingIndex requests, with distinct-query counts for
+  all four sizes and supporting query links.
+- Non-columnstore scans upstream of an aggregate, restricted to at least 10,000
+  estimated output rows. Counts match the existing per-dataset observation rule.
+- INCLUDE-set counts and union sizes for the date-key patterns, column-frequency
+  figures and full-request fit comparisons for each dataset.
+- Recurring resolved grouping and sort columns, plus optional scan-filtering and
+  NoJoinPredicate evidence. Matching grain alone does not establish reusable data.
+
+Figures have zero-based axes, exact labels and explicit pending states. Download
+their standalone SVG files from each figure for insertion into the report, or
+capture the figure and its caption. JSON contains the underlying query evidence;
+the CSV export contains index counts. Queries are deduplicated within each dataset,
+not counted as operator occurrences. Cross-size matching is not a controlled
+experiment when SQL or settings differ. The previous detailed index page remains
+available from the INCLUDE section; global navigation now emphasizes this overview.
+
+### Choosing optimization strategies
+
+The **Index comparison** page (`site/indexes.html`) reproduces the cross-size
+sales-date-key table directly from SQL Server MissingIndex entries. It also
+compares all other key patterns and their INCLUDE variants. Counts deduplicate
+queries within each size, equality keys are treated as a set and range-key order
+is retained. Database names are excluded so the same table can be compared across
+sizes. The detail lists exact INCLUDE sets, per-column query frequencies, their
+intersection and union. A set satisfies a query's recorded requests only if it
+contains every INCLUDE set requested by that query for the same key pattern.
+This is a column-request comparison, not verified physical coverage or predicted
+performance. No wide union index is automatically recommended. Missing plans are
+pending rather than zero. CSV counts and full JSON evidence are downloadable.
+
+Start with **Optimization strategies** (`site/strategies.html`) or the first
+section of a dataset report. Findings are built from plans alone; historical
+durations are supplementary context and do not drive these rules. Each finding
+identifies the table, distinct supporting queries, statement/operator evidence,
+an experiment to try and the conditions to check before deciding. SQL Server
+missing-index suggestions are labelled separately from analyzer hypotheses.
+The rules are:
+
+- **Rowstore indexes:** group SQL Server suggestions by table, equality-key set
+  and ordered range keys. Keep INCLUDE variants visible rather than blindly
+  combining them into a wide index. Counts deduplicate queries and suggestions.
+- **Selective filtering:** require a scan with a recorded residual predicate,
+  at least 10,000 estimated rows read and estimated output at most one tenth of
+  estimated rows read. Missing read estimates do not imply selectivity.
+- **Columnstore:** require a non-columnstore scan with at least 10,000 estimated
+  output rows on a descendant branch of an aggregate. A hash join or scan alone
+  does not qualify. Review columns, selectivity and index coverage before testing.
+- **Pre-aggregation:** require identical resolved grouping columns in at least
+  two distinct queries, with aggregate expressions recorded. Filters, measures
+  and joins still need manual compatibility checks; common grain alone is not
+  proof that results can be reused. Computed/unresolved grouping keys are omitted.
+- **Ordering:** require the same resolved sort columns, sequence and direction
+  in at least two distinct queries. An index providing that ordering may still
+  lose it through joins or parallel exchanges.
+
+The row thresholds are explicit screening heuristics, not measured bottlenecks.
+Candidates are grouped by strategy family and sorted by query coverage, not by a
+fabricated benefit score. The 10GB dataset remains pending until plans exist.
+Structured findings are also included in each `analysis*.json` export.
+The optional baseline/indexed page is retained at `site/experiments.html` for
+later validation; the main navigation prioritizes plan-based strategy selection.
+
+### Plan inspection and indexing experiments
+
+Each query's technical evidence includes an expandable execution-plan tree.
+Branches preserve the XML operator topology. Nodes show table/index access,
+estimated output rows, local estimated cost, predicates and output columns.
+Seek predicates and residual filters retain their XML labels; properties are
+scoped to their own operator rather than inherited from child operators.
+The row-estimate mismatch filter is only offered when actual plans are present.
+
+To compare missing-index suggestions with existing indexes, run
+`scripts/export_indexes.sql` in the database whose plans were captured and
+export the result as UTF-8 CSV with the supplied column headers. This is a
+read-only catalogue query. Add an optional `indexes_csv` path to that dataset's
+configuration. Paths are relative to the configuration file. Keep local catalogue
+exports and custom configurations outside the shared dataset folders, for example
+under the ignored `inputs/` directory. A missing inventory is shown as unavailable,
+not interpreted as a database with no indexes. Potential coverage checks equality
+keys, range-key order and included columns; filtered and non-rowstore indexes are
+left for manual review. Implicit clustered-key coverage is not inferred.
+
+The **Baseline / indexed** page accepts optional `indexed_plans`,
+`indexed_summary` and `indexed_indexes_csv` paths alongside the baseline inputs:
+
+```json
+{
+  "1GB": {
+    "plans": "baseline/plans.zip",
+    "summary": "baseline/timings.csv",
+    "indexes_csv": "baseline/indexes.csv",
+    "indexed_plans": "indexed/plans.zip",
+    "indexed_summary": "indexed/timings.csv",
+    "indexed_indexes_csv": "indexed/indexes.csv"
+  }
+}
+```
+
+Rebuild with `python -B -m query_analyzer build --config path/to/config.json`.
+Plans may be ZIP archives or directories of XML/sqlplan files. The comparison
+shows SQL matching, structural changes, operator count changes, both plan trees
+and paired average durations when supplied. Neither captures nor timings are
+generated by the website. Matching SQL does not establish identical statistics,
+server settings, cache conditions or results; validate those in the experiment.
+The bundled configuration has no indexed inputs and displays explicit pending
+states. The original cross-size comparison remains available separately.
+
 - Optimizer costs are not milliseconds. Scans and hashes alone do not prove a fault.
 - MissingIndex entries are hypotheses, not verified index improvements. Duplicate
   column requests are grouped; compare against existing indexes before testing.

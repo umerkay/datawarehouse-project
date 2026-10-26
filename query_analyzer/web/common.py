@@ -10,7 +10,10 @@ def report_name(scale):
 
 
 def navigation(active=None):
-    links = [('Home', 'index.html'), ('Compare sizes', 'comparison.html')]
+    links = [('Home', 'index.html'), ('Index comparison', 'indexes.html'), ('Optimization strategies', 'strategies.html'), ('Compare sizes', 'comparison.html')]
+    # Keep the four individual reports exactly as before; simplify global entry points.
+    if active not in {report_name(scale) for scale in SCALES}:
+        links = [('Home', 'index.html'), ('Overall analysis', 'overall.html'), ('Compare sizes', 'comparison.html')]
     links += [(scale, report_name(scale)) for scale in SCALES]
     return '<nav class="toolbar" aria-label="Site navigation">' + ''.join(
         '<a href="' + target + '"' + (' aria-current="page"' if target == active else '') + '>' + label + '</a>'
