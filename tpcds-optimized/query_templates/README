@@ -1,0 +1,5 @@
+-- README
+-- ====================
+-- this directory contains a copy of all the base query templates
+-- which we may modify into equivalent queries (same result set) that
+-- perform better (e.g. pushing down selections, using any sensible materializations, etc.)

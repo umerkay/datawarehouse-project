@@ -3,6 +3,22 @@ set -e
 
 SCALE_FOLDER=$1
 DB_NAME=$2
+shift 2
+
+TPCDS_BASE_DIR="tpcds-kit"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --optimized)
+            TPCDS_BASE_DIR="tpcds-optimized"
+            ;;
+        *)
+            echo "Unknown parameter: $1" >&2
+            exit 1
+            ;;
+    esac
+    shift
+done
 
 if [ -z "$SCALE_FOLDER" ] || [ -z "$DB_NAME" ]; then
     echo "Error: Missing arguments."
@@ -18,8 +34,8 @@ echo "Creating database $DB_NAME..."
 /opt/mssql-tools18/bin/sqlcmd -b -S localhost -U sa -P "$SA_PASS" -C -Q "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME;"
 
 echo "Creating schema..."
-/opt/mssql-tools18/bin/sqlcmd -b -S localhost -U sa -P "$SA_PASS" -C -d $DB_NAME -i /tpcds-kit/tools/tpcds.sql
-/opt/mssql-tools18/bin/sqlcmd -b -S localhost -U sa -P "$SA_PASS" -C -d $DB_NAME -i /tpcds-kit/tools/tpcds_source.sql
+/opt/mssql-tools18/bin/sqlcmd -b -S localhost -U sa -P "$SA_PASS" -C -d $DB_NAME -i "/$TPCDS_BASE_DIR/tools/tpcds.sql"
+/opt/mssql-tools18/bin/sqlcmd -b -S localhost -U sa -P "$SA_PASS" -C -d $DB_NAME -i "/$TPCDS_BASE_DIR/tools/tpcds_source.sql"
 
 DATA_DIR="/data/${SCALE_FOLDER}/dataset"
 
@@ -44,6 +60,6 @@ for file in "${data_files[@]}"; do
 done
 
 echo "Setting up table constraints and foreign key referential integrity..."
-/opt/mssql-tools18/bin/sqlcmd -b -S localhost -U sa -P "$SA_PASS" -C -d $DB_NAME -i /tpcds-kit/tools/tpcds_ri.sql
+/opt/mssql-tools18/bin/sqlcmd -b -S localhost -U sa -P "$SA_PASS" -C -d $DB_NAME -i "/$TPCDS_BASE_DIR/tools/tpcds_ri.sql"
 
 echo "Successfully loaded all $SCALE_FOLDER data into $DB_NAME!"

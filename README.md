@@ -52,6 +52,9 @@ Execute the loading script inside the SQL Server container. This script drops an
 ```bash
 docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01
 
+# Load from the optimized schema setup scripts with
+docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01_optimized --optimized
+
 ```
 
 ### 4. Apply the analytical indexing strategy
