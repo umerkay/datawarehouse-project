@@ -16,6 +16,7 @@ _MAX_INT=2147483647
 FROM=1
 TO=$_MAX_INT
 LIST=()
+OPTIMIZED_QUERYSET=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -50,6 +51,10 @@ while [[ $# -gt 0 ]]; do
                 shift
             done
             ;;
+        --optimized)
+            shift
+            OPTIMIZED_QUERYSET=true
+            ;;
         *)
             echo "Unknown parameter: $1" >&2
             exit 1
@@ -73,7 +78,11 @@ if ((TO < FROM)); then
     exit 0
 fi
 
-QUERY_DIR=${QUERY_DIR:-/data/$SCALE_FOLDER/queryset}
+QUERY_DIR="/data/$SCALE_FOLDER/queryset"
+if [ "$OPTIMIZED_QUERYSET" = true ]; then
+    QUERY_DIR="/data/$SCALE_FOLDER/queryset-optimized"
+fi
+
 RESULTS_DIR=${RESULTS_DIR:-/benchmark_results}
 SQLCMD_BIN=${SQLCMD_BIN:-/opt/mssql-tools18/bin/sqlcmd}
 SA_PASS=${MSSQL_SA_PASSWORD:-}
@@ -257,12 +266,15 @@ awk -F, -v max_average="$MAX_AVERAGE_MS" -v database="$DB_NAME" -v run_id="$RUN_
         print "<table><thead><tr><th>Rank</th><th>Query</th><th>Average (ms)</th><th>% of total time</th><th>Min (ms)</th><th>Max (ms)</th><th class=\"chart\">Relative average</th></tr></thead><tbody>"
     }
     NR > 1 {
+        sum_total += $8
+        sum_avg += $5
         width = max_average > 0 ? ($5 / max_average) * 100 : 0
         printf "<tr><td>%s</td><td>%s</td><td>%.1f</td><td>%.2f%%</td><td>%s</td><td>%s</td><td class=\"chart\"><div class=\"bar\" style=\"width:%.2f%%\"></div></td></tr>\n",
             $1, $2, $5, $9, $6, $7, width
     }
     END {
         print "</tbody></table>"
+        printf "<p>Total elapsed time (5 iterations - 103 queries): %d ms - Average elapsed time per iteration (103 queries): %d ms.", sum_total, sum_avg
         print "<p class=\"meta\">Times include sqlcmd process startup overhead. See summary.csv and timings.csv for the underlying data.</p>"
         print "</body></html>"
     }
