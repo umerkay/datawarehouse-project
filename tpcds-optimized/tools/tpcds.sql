@@ -433,7 +433,8 @@ create table inventory
     inv_item_sk               integer               not null,
     inv_warehouse_sk          integer               not null,
     inv_quantity_on_hand      integer                       ,
-    primary key (inv_date_sk, inv_item_sk, inv_warehouse_sk)
+    primary key nonclustered (inv_date_sk, inv_item_sk, inv_warehouse_sk),
+    index IMCCI_inventory clustered columnstore
 );
 
 create table catalog_returns
