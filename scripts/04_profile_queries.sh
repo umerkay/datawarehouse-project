@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 2 || -z "$1" || -z "$2" ]]; then
-    echo "Usage: $0 <SCALE_FOLDER> <DB_NAME> [--from INDEX] [--to INDEX] [--list INDEX ...]" >&2
+    echo "Usage: $0 <SCALE_FOLDER> <DB_NAME> [--from INDEX] [--to INDEX] [--list INDEX ...] [--full-stats-after-warmup]" >&2
     exit 1
 fi
 
@@ -27,6 +27,7 @@ fi
 
 WARMUP_RUNS=$((10#$WARMUP_RUNS))
 TOTAL_RUNS=$((WARMUP_RUNS + MEASURED_RUNS))
+FULL_STATS_AFTER_WARMUP=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -64,6 +65,10 @@ while [[ $# -gt 0 ]]; do
         --optimized)
             shift
             OPTIMIZED_QUERYSET=true
+            ;;
+        --full-stats-after-warmup)
+            FULL_STATS_AFTER_WARMUP=true
+            shift
             ;;
         *)
             echo "Unknown parameter: $1" >&2
@@ -221,6 +226,15 @@ for ((RUN = 1; RUN <= TOTAL_RUNS; RUN++)); do
 
     if [ "$RUN" -le "$WARMUP_RUNS" ]; then
         echo "  -> Warm-up completed in ${RUN_DURATION_MS}ms."
+        if [ "$FULL_STATS_AFTER_WARMUP" = true ]; then
+            echo "Updating statistics with FULLSCAN before measured runs..."
+            "$SQLCMD_BIN" -b -S localhost -U sa -P "$SA_PASS" -C \
+                -d "$DB_NAME" -i /scripts/full_stats.sql
+            echo "Clearing the database-scoped procedure cache..."
+            "$SQLCMD_BIN" -b -S localhost -U sa -P "$SA_PASS" -C \
+                -d "$DB_NAME" -i /scripts/clear_stats_cache.sql
+            echo "Statistics update completed; measured runs will begin."
+        fi
     else
         echo "  -> Run $RUN completed in ${RUN_DURATION_MS}ms."
         TOTAL_SUM_MS=$((TOTAL_SUM_MS + RUN_DURATION_MS))

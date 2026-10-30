@@ -6,11 +6,15 @@ DB_NAME=$2
 shift 2
 
 TPCDS_BASE_DIR="tpcds-kit"
+FULL_STATS=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --optimized)
             TPCDS_BASE_DIR="tpcds-optimized"
+            ;;
+        --full-stats)
+            FULL_STATS=true
             ;;
         *)
             echo "Unknown parameter: $1" >&2
@@ -61,5 +65,14 @@ done
 
 echo "Setting up table constraints and foreign key referential integrity..."
 /opt/mssql-tools18/bin/sqlcmd -b -S localhost -U sa -P "$SA_PASS" -C -d $DB_NAME -i "/$TPCDS_BASE_DIR/tools/tpcds_ri.sql"
+
+if [ "$FULL_STATS" = true ]; then
+    echo "Updating all workload-table statistics with FULLSCAN..."
+    /opt/mssql-tools18/bin/sqlcmd -b -S localhost -U sa -P "$SA_PASS" -C \
+        -d "$DB_NAME" -i /scripts/full_stats.sql
+    echo "Clearing the database-scoped procedure cache..."
+    /opt/mssql-tools18/bin/sqlcmd -b -S localhost -U sa -P "$SA_PASS" -C \
+        -d "$DB_NAME" -i /scripts/clear_stats_cache.sql
+fi
 
 echo "Successfully loaded all $SCALE_FOLDER data into $DB_NAME!"
