@@ -33,87 +33,83 @@
 -- Contributors:
 -- 
  define YEAR=random(1998,2001,uniform);
- define SELECTONE= text({"t_s_secyear.customer_preferred_cust_flag",1}
-                       ,{"t_s_secyear.customer_birth_country",1}
-                       ,{"t_s_secyear.customer_login",1}
-                       ,{"t_s_secyear.customer_email_address",1});
+ define SELECTONE= text({"c_preferred_cust_flag",1}
+                       ,{"c_birth_country",1}
+                       ,{"c_login",1}
+                       ,{"c_email_address",1});
  define _LIMIT=100;
 
- with year_total as (
- select c_customer_id customer_id
-       ,c_first_name customer_first_name
-       ,c_last_name customer_last_name
-       ,c_preferred_cust_flag customer_preferred_cust_flag
-       ,c_birth_country customer_birth_country
-       ,c_login customer_login
-       ,c_email_address customer_email_address
-       ,d_year dyear
-       ,sum(ss_ext_list_price-ss_ext_discount_amt) year_total
-       ,'s' sale_type
- from customer
-     ,store_sales
-     ,date_dim
- where c_customer_sk = ss_customer_sk
-   and ss_sold_date_sk = d_date_sk
- group by c_customer_id
-         ,c_first_name
-         ,c_last_name
-         ,c_preferred_cust_flag 
-         ,c_birth_country
-         ,c_login
-         ,c_email_address
-         ,d_year 
- union all
- select c_customer_id customer_id
-       ,c_first_name customer_first_name
-       ,c_last_name customer_last_name
-       ,c_preferred_cust_flag customer_preferred_cust_flag
-       ,c_birth_country customer_birth_country
-       ,c_login customer_login
-       ,c_email_address customer_email_address
-       ,d_year dyear
-       ,sum(ws_ext_list_price-ws_ext_discount_amt) year_total
-       ,'w' sale_type
- from customer
-     ,web_sales
-     ,date_dim
- where c_customer_sk = ws_bill_customer_sk
-   and ws_sold_date_sk = d_date_sk
- group by c_customer_id
-         ,c_first_name
-         ,c_last_name
-         ,c_preferred_cust_flag 
-         ,c_birth_country
-         ,c_login
-         ,c_email_address
-         ,d_year
-         )
- [_LIMITA] select [_LIMITB] 
-                  t_s_secyear.customer_id
-                 ,t_s_secyear.customer_first_name
-                 ,t_s_secyear.customer_last_name
-                 ,[SELECTONE]
- from year_total t_s_firstyear
-     ,year_total t_s_secyear
-     ,year_total t_w_firstyear
-     ,year_total t_w_secyear
- where t_s_secyear.customer_id = t_s_firstyear.customer_id
-         and t_s_firstyear.customer_id = t_w_secyear.customer_id
-         and t_s_firstyear.customer_id = t_w_firstyear.customer_id
-         and t_s_firstyear.sale_type = 's'
-         and t_w_firstyear.sale_type = 'w'
-         and t_s_secyear.sale_type = 's'
-         and t_w_secyear.sale_type = 'w'
-         and t_s_firstyear.dyear = [YEAR]
-         and t_s_secyear.dyear = [YEAR]+1
-         and t_w_firstyear.dyear = [YEAR]
-         and t_w_secyear.dyear = [YEAR]+1
-         and t_s_firstyear.year_total > 0
-         and t_w_firstyear.year_total > 0
-         and case when t_w_firstyear.year_total > 0 then t_w_secyear.year_total / t_w_firstyear.year_total else 0.0 end
-             > case when t_s_firstyear.year_total > 0 then t_s_secyear.year_total / t_s_firstyear.year_total else 0.0 end
- order by t_s_secyear.customer_id
-         ,t_s_secyear.customer_first_name
-         ,t_s_secyear.customer_last_name
-         ,[SELECTONE]
+ with store_year AS (
+	SELECT c_customer_id customer_id
+	       ,c_first_name customer_first_name
+	       ,c_last_name customer_last_name
+	       ,[SELECTONE]
+	       ,d_year dyear
+           ,sum(ss_ext_list_price-ss_ext_discount_amt) year_total
+	FROM customer 
+		INNER JOIN store_sales ON c_customer_sk = ss_customer_sk
+		INNER JOIN date_dim ON ss_sold_date_sk = d_date_sk
+	WHERE d_year IN ([YEAR], [YEAR]+1)
+	GROUP BY c_customer_id
+            ,c_first_name
+            ,c_last_name
+            ,c_preferred_cust_flag 
+            ,c_birth_country
+            ,c_login
+            ,c_email_address
+            ,d_year 
+), store_two_years AS (
+	SELECT
+		  t_s_secyear.customer_id
+	     ,t_s_secyear.customer_first_name
+	     ,t_s_secyear.customer_last_name
+	     ,t_s_secyear.[SELECTONE]
+	     ,t_s_secyear.year_total / t_s_firstyear.year_total year_total_ratio
+	FROM store_year t_s_firstyear INNER JOIN store_year t_s_secyear ON t_s_secyear.customer_id = t_s_firstyear.customer_id
+	WHERE t_s_firstyear.dyear =  [YEAR]
+	   and t_s_secyear.dyear = [YEAR]+1
+	   and t_s_firstyear.year_total > 0
+), web_year AS (
+	SELECT c_customer_id customer_id
+	       ,c_first_name customer_first_name
+	       ,c_last_name customer_last_name
+	       ,[SELECTONE]
+	       ,d_year dyear
+           ,sum(ws_ext_list_price-ws_ext_discount_amt) year_total
+	FROM customer
+	     INNER JOIN web_sales ON c_customer_sk = ws_bill_customer_sk
+	     INNER JOIN date_dim ON ws_sold_date_sk = d_date_sk
+	WHERE d_year IN ([YEAR], [YEAR]+1)
+	GROUP BY c_customer_id
+            ,c_first_name
+            ,c_last_name
+            ,c_preferred_cust_flag 
+            ,c_birth_country
+            ,c_login
+            ,c_email_address
+            ,d_year
+), web_two_years AS (
+	SELECT
+		  t_s_secyear.customer_id
+	     ,t_s_secyear.customer_first_name
+	     ,t_s_secyear.customer_last_name
+	     ,t_s_secyear.[SELECTONE]
+	     ,t_s_secyear.year_total / t_s_firstyear.year_total year_total_ratio
+	 FROM web_year t_s_firstyear INNER JOIN web_year t_s_secyear ON t_s_firstyear.customer_id = t_s_secyear.customer_id
+     WHERE t_s_firstyear.dyear =  [YEAR]
+	   and t_s_secyear.dyear = [YEAR]+1
+	   and t_s_firstyear.year_total > 0
+)
+[_LIMITA] SELECT [_LIMITB] 
+      t_s.customer_id
+     ,t_s.customer_first_name
+     ,t_s.customer_last_name
+     ,t_s.[SELECTONE]
+FROM store_two_years t_s
+    INNER JOIN web_two_years t_w ON t_s.customer_id = t_w.customer_id
+WHERE t_w.year_total_ratio > t_s.year_total_ratio
+ORDER BY t_s.customer_id
+     ,t_s.customer_first_name
+     ,t_s.customer_last_name
+     ,t_s.[SELECTONE]
 [_LIMITC];

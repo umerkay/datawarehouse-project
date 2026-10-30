@@ -86,7 +86,7 @@ docker exec -it tpcds_sqlserver bash /scripts/03_run_benchmark.sh 1GB tpcds_01
 
 ### 6. Development: Profile Individual Queries
 
-Use the separate profiling script when you want diagnostic timings for each query rather than the normal aggregate benchmark. It reads one SQL filename per row from `data/<SCALE_FOLDER>/queryset/queries.lst` and executes those pre-split files directly, ignoring unlisted SQL files. It runs each selected query once for warm-up and five measured times, then ranks the queries by average duration. It logs each query before and after execution; on failure, it reports the query, run, elapsed time, and `sqlcmd` exit code.
+Use the separate profiling script when you want diagnostic timings for each query rather than the normal aggregate benchmark. It reads one SQL filename per row from `data/<SCALE_FOLDER>/queryset/queries.lst` and executes those pre-split files directly, ignoring unlisted SQL files. By default, it runs each selected query once for warm-up and five measured times, then ranks the queries by average duration. Set the environment variables `WARMUP_RUNS` (integer >= 0) and `MEASURED_RUNS` (integer >= 1) to override these counts. Warm-up timings are discarded, and measured runs in `timings.csv` are numbered starting at 1. It logs each query before and after execution; on failure, it reports the query, run, elapsed time, and `sqlcmd` exit code.
 
 If `queries.lst` is missing, the script prints a warning and exits without profiling. Generate the split queries and list with:
 
@@ -101,8 +101,14 @@ Query indices start at 1, and both range endpoints are inclusive. `--list` overr
 ```bash
 docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01
 
+# Profile the optimized version of the queries
+docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01 --optimized
+
 # Profile only the first and third entries in queries.lst
 docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01 --list 1 3
+
+# Profile those queries with two warm-up runs and ten measured runs
+docker exec -it -e WARMUP_RUNS=2 -e MEASURED_RUNS=10 tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01 --list 1 3
 
 ```
 
