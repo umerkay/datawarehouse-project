@@ -67,7 +67,9 @@ cd /tpcds-kit/tools
 if [ "$SKIP_RECOMPILE" = false ]; then
     echo "Compiling dsdgen for Linux..."
     make -s clean
-    make -s OS=LINUX > /dev/null 2>&1
+    # Keep compiler errors visible; hiding them made failed Windows checkouts
+    # look like a data-generation failure later in the script.
+    make -s OS=LINUX
 fi
 
 # 3. Generate the data for each requested scale factor
