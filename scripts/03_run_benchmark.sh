@@ -1,11 +1,17 @@
 #!/bin/bash
 set -euo pipefail
 
-SCALE_FOLDER=${1:-}
-DB_NAME=${2:-}
+if [[ $# -lt 2 ]]; then
+    echo "Usage: $0 <SCALE_FOLDER> <DB_NAME> [--full-stats-after-warmup]" >&2
+    exit 1
+fi
+
+SCALE_FOLDER=$1
+DB_NAME=$2
+shift 2
 
 if [ -z "$SCALE_FOLDER" ] || [ -z "$DB_NAME" ]; then
-    echo "Usage: $0 <SCALE_FOLDER> <DB_NAME>" >&2
+    echo "Usage: $0 <SCALE_FOLDER> <DB_NAME> [--full-stats-after-warmup]" >&2
     exit 1
 fi
 
@@ -13,6 +19,20 @@ if [[ ! "$SCALE_FOLDER" =~ ^[1-9][0-9]*GB$ ]] || [[ ! "$DB_NAME" =~ ^[A-Za-z0-9_
     echo "Error: unsupported scale folder or database name." >&2
     exit 1
 fi
+
+FULL_STATS_AFTER_WARMUP=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --full-stats-after-warmup)
+            FULL_STATS_AFTER_WARMUP=true
+            ;;
+        *)
+            echo "Unknown parameter: $1" >&2
+            exit 1
+            ;;
+    esac
+    shift
+done
 
 QUERY_DIR="/data/${SCALE_FOLDER}/queryset"
 QUERY_FILE="$QUERY_DIR/benchmark.sql"
@@ -62,6 +82,12 @@ for ((RUN = 1; RUN <= TOTAL_RUNS; RUN++)); do
 
     if [ "$RUN" -le "$WARMUP_RUNS" ]; then
         echo "  -> Warm-up completed in ${DURATION_MS}ms."
+        if [ "$FULL_STATS_AFTER_WARMUP" = true ]; then
+            echo "Updating statistics with FULLSCAN before measured runs..."
+            /opt/mssql-tools18/bin/sqlcmd -b -S localhost -U sa -P "$SA_PASS" -C \
+                -d "$DB_NAME" -i /scripts/full_stats.sql
+            echo "Statistics update completed; measured runs will begin."
+        fi
     else
         echo "  -> Run $RUN completed in ${DURATION_MS}ms."
         TOTAL_SUM_MS=$((TOTAL_SUM_MS + DURATION_MS))

@@ -47,13 +47,15 @@ docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh --queryset --s
 
 Execute the loading script inside the SQL Server container. This script drops any existing database with the same name, creates a fresh schema, and bulk inserts the data.
 
-**Usage:** `bash /scripts/02_load_data.sh <SCALE_FOLDER> <DB_NAME>`
+**Usage:** `bash /scripts/02_load_data.sh <SCALE_FOLDER> <DB_NAME> [--full-stats] [--optimized]`
+
+`--full-stats` updates statistics for all TPC-DS workload tables with `FULLSCAN` after bulk loading and referential integrity setup, then clears the database-scoped procedure cache using separate maintenance scripts. It is intentionally opt-in and is not included in the script's default behavior.
 
 ```bash
-docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01
+docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01 --full-stats
 
 # Load from the optimized schema setup scripts with
-docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01_optimized --optimized
+docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01_optimized --optimized --full-stats
 
 ```
 
@@ -63,7 +65,7 @@ For an optimized comparison, load the same scale factor into a separate database
 
 ```bash
 docker exec -it tpcds_sqlserver \
-  bash /scripts/02_load_data.sh 1GB tpcds_01_indexed
+  bash /scripts/02_load_data.sh 1GB tpcds_01_indexed --full-stats
 
 docker exec -it tpcds_sqlserver \
   bash /scripts/05_apply_indexing.sh tpcds_01_indexed
@@ -89,10 +91,13 @@ Execute the benchmark script against the populated database. This script runs di
 
 **Protocol:** The script requires and reads only `/data/<SCALE_FOLDER>/queryset/benchmark.sql`. By default it runs this benchmark **6 times**. The first run is discarded to allow for buffer pool warm-up, and the remaining 5 runs are averaged. Execution times are tracked with millisecond precision. For short tuning experiments, override `WARMUP_RUNS` and `MEASURED_RUNS`; defaults remain 1 and 5.
 
-**Usage:** `bash /scripts/03_run_benchmark.sh <SCALE_FOLDER> <DB_NAME>`
+**Usage:** `bash /scripts/03_run_benchmark.sh <SCALE_FOLDER> <DB_NAME> [--full-stats-after-warmup]`
+
+Use `--full-stats-after-warmup` to run [`scripts/full_stats.sql`](scripts/full_stats.sql) after the discarded warm-up and before the five measured runs. It updates statistics but does not clear the procedure cache. The statistics-maintenance time is not included in the measured query timings. Without the flag, benchmark behavior is unchanged.
 
 ```bash
-docker exec -it tpcds_sqlserver bash /scripts/03_run_benchmark.sh 1GB tpcds_01
+docker exec -it tpcds_sqlserver \
+  bash /scripts/03_run_benchmark.sh 1GB tpcds_01 --full-stats-after-warmup
 
 # One-pass engineering experiment (not the final reporting protocol)
 docker exec -e WARMUP_RUNS=0 -e MEASURED_RUNS=1 \
@@ -130,7 +135,7 @@ container running.
 
 ### 6. Development: Profile Individual Queries
 
-Use the separate profiling script when you want diagnostic timings for each query rather than the normal aggregate benchmark. It reads one SQL filename per row from `data/<SCALE_FOLDER>/queryset/queries.lst` and executes those pre-split files directly, ignoring unlisted SQL files. It runs each selected query once for warm-up and five measured times, then ranks the queries by average duration. It logs each query before and after execution; on failure, it reports the query, run, elapsed time, and `sqlcmd` exit code.
+Use the separate profiling script when you want diagnostic timings for each query rather than the normal aggregate benchmark. It reads one SQL filename per row from `data/<SCALE_FOLDER>/queryset/queries.lst` and executes those pre-split files directly, ignoring unlisted SQL files. It runs each selected query once for warm-up and five measured times, then ranks the queries by average duration. It logs each query before and after execution; on failure, it reports the query, run, elapsed time, and `sqlcmd` exit code. Add `--full-stats-after-warmup` to update statistics between the warm-up pass and measured passes without clearing the procedure cache.
 
 If `queries.lst` is missing, the script prints a warning and exits without profiling. Generate the split queries and list with:
 
