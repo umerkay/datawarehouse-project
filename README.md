@@ -133,6 +133,18 @@ Detached execution does not report the final exit code to the terminal; inspect
 the summary and log for completion and failures. Keep the host awake and the
 container running.
 
+To collect per-query timings instead of only the aggregate benchmark time, use
+the profiler wrapper:
+
+```bash
+docker exec -it tpcds_sqlserver bash /scripts/test_columnstores_profiler.sh
+```
+
+It runs `04_profile_queries.sh` for the same six databases, stores each
+per-database profiler output under the run directory, and writes
+`summary.csv`, `runner.log`, and one detailed log per database under
+`benchmark_results/columnstores_profiler_<timestamp>_<suffix>/`.
+
 ### 6. Development: Profile Individual Queries
 
 Use the separate profiling script when you want diagnostic timings for each query rather than the normal aggregate benchmark. It reads one SQL filename per row from `data/<SCALE_FOLDER>/queryset/queries.lst` and executes those pre-split files directly, ignoring unlisted SQL files. It runs each selected query once for warm-up and five measured times, then ranks the queries by average duration. It logs each query before and after execution; on failure, it reports the query, run, elapsed time, and `sqlcmd` exit code. Add `--full-stats-after-warmup` to update statistics between the warm-up pass and measured passes without clearing the procedure cache.
@@ -143,15 +155,18 @@ If `queries.lst` is missing, the script prints a warning and exits without profi
 docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh --queryset --split-queries --no-recompile
 ```
 
-**Usage:** `bash /scripts/04_profile_queries.sh <SCALE_FOLDER> <DB_NAME> [--from INDEX] [--to INDEX] [--list INDEX_1 INDEX_2 ...]`
+**Usage:** `bash /scripts/04_profile_queries.sh <SCALE_FOLDER> <DB_NAME> [--from INDEX] [--to INDEX] [--list INDEX_1 INDEX_2 ...] [--exclude INDEX_1 INDEX_2 ...]`
 
-Query indices start at 1, and both range endpoints are inclusive. `--list` overrides the range. If a query fails, profiling stops immediately: its failed execution is not added to `timings.csv`, and no final summary or HTML report is generated for that incomplete run.
+Query indices start at 1, and both range endpoints are inclusive. `--list` overrides the range, and `--exclude` removes selected indices from the resulting set. If a query fails, profiling stops immediately: its failed execution is not added to `timings.csv`, and no final summary or HTML report is generated for that incomplete run.
 
 ```bash
 docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01
 
 # Profile only the first and third entries in queries.lst
 docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01 --list 1 3
+
+# Profile every query except query 42
+docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 5GB tpcds_05 --exclude 42
 
 ```
 

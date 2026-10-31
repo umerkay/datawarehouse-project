@@ -8,7 +8,7 @@ printf 'database,average_ms,status\n' > "$OUT/summary.csv"
 echo "Results: $OUT/summary.csv"
 failed=0
 
-for scale in 1 2 5 10; do
+for scale in 1 2 5; do
     printf -v id '%02d' "$scale"
 
     for db in "tpcds_${id}_baseline" "tpcds_${id}"; do
@@ -39,6 +39,6 @@ for scale in 1 2 5 10; do
     done
 done
 
-echo "[$(date -Is)] All eight benchmarks attempted."
+echo "[$(date -Is)] All six benchmarks attempted."
 cat "$OUT/summary.csv"
 exit "$failed"

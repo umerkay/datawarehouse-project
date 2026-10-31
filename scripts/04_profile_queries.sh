@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 2 || -z "$1" || -z "$2" ]]; then
-    echo "Usage: $0 <SCALE_FOLDER> <DB_NAME> [--from INDEX] [--to INDEX] [--list INDEX ...] [--full-stats-after-warmup]" >&2
+    echo "Usage: $0 <SCALE_FOLDER> <DB_NAME> [--from INDEX] [--to INDEX] [--list INDEX ...] [--exclude INDEX ...] [--full-stats-after-warmup]" >&2
     exit 1
 fi
 
@@ -16,6 +16,7 @@ _MAX_INT=2147483647
 FROM=1
 TO=$_MAX_INT
 LIST=()
+EXCLUDE=()
 OPTIMIZED_QUERYSET=false
 FULL_STATS_AFTER_WARMUP=false
 
@@ -49,6 +50,21 @@ while [[ $# -gt 0 ]]; do
                     exit 1
                 fi
                 LIST+=("$1")
+                shift
+            done
+            ;;
+        --exclude)
+            shift
+            if [[ $# -eq 0 || "$1" == --* ]]; then
+                echo "Error: --exclude requires at least one positive integer index" >&2
+                exit 1
+            fi
+            while [[ $# -gt 0 && "$1" != --* ]]; do
+                if [[ ! "$1" =~ ^[1-9][0-9]{0,8}$ ]]; then
+                    echo "Error: Invalid excluded query index: $1" >&2
+                    exit 1
+                fi
+                EXCLUDE+=("$1")
                 shift
             done
             ;;
@@ -133,6 +149,13 @@ for query_index in "${LIST[@]}"; do
     fi
 done
 
+for query_index in "${EXCLUDE[@]}"; do
+    if ((query_index > STATEMENT_COUNT)); then
+        echo "Error: Excluded query index $query_index exceeds the number of queries ($STATEMENT_COUNT)." >&2
+        exit 1
+    fi
+done
+
 STATEMENTS=()
 for source_file in "${query_files[@]}"; do
     if [[ ! "$source_file" =~ ^[A-Za-z0-9._-]+\.sql$ ]]; then
@@ -188,6 +211,10 @@ for ((RUN = 1; RUN <= TOTAL_RUNS; RUN++)); do
         
         if [[ ${#LIST[@]} -gt 0 && " ${LIST[*]} " != *" $QUERY_INDEX "* ]]; then
             # QUERY_INDEX not in requested --list
+            continue
+        fi
+
+        if [[ ${#EXCLUDE[@]} -gt 0 && " ${EXCLUDE[*]} " == *" $QUERY_INDEX "* ]]; then
             continue
         fi
         
