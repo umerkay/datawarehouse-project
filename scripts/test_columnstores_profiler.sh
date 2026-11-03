@@ -16,7 +16,7 @@ for scale in 1 2 5; do
         echo "[$(date -Is)] Starting $db"
 
         if RESULTS_DIR="$OUT" \
-            bash /scripts/04_profile_queries.sh "${scale}GB" "$db" --list 15 82 \
+            bash /scripts/04_profile_queries.sh "${scale}GB" "$db" \
             >"$log" 2>&1
         then
             average=$(awk '/^Average suite execution time/ {
