@@ -10,8 +10,9 @@ Usage: bash /scripts/benchmark.sh <1GB|2GB|5GB|10GB> <BASELINE_DB>
        [--list QUERY_INDEX ...] [--scenarios SCENARIO ...] [--dry-run]
        [--resume /benchmark_results/findings_<scale>_<id>]
 
-Default: all listed queries; baseline, date_keys, date_shared, date_priority,
-columnstore, columnstore_date_keys. Baseline is always first. One warm-up and five measured
+Default: all listed queries; baseline, date_keys, date_shared (sales experiment).
+Baseline = the seven IMCCI indexes from the main optimized schema; only sales indexes change.
+Baseline is always first. One warm-up and five measured
 workload passes per scenario. --list uses 1-based entries in queries.lst.
 Creates a new private database using COPY_ONLY backup + restore. Never drops or
 alters the source database. Additional disk space is required for backup, copy,
@@ -48,13 +49,15 @@ while [[ $# -gt 0 ]]; do
         *) die "Unknown argument: $1";;
     esac
 done
-if [[ ${#requested[@]} -eq 0 ]]; then requested=(date_keys date_shared date_priority columnstore columnstore_date_keys); fi
+if [[ ${#requested[@]} -eq 0 ]]; then requested=(date_keys date_shared); fi
 scenarios=(baseline)
 for scenario in "${requested[@]}"; do
-    case "$scenario" in baseline|date_keys|date_shared|date_priority|columnstore|columnstore_date_keys) ;; *) die "Unknown scenario: $scenario";; esac
+    case "$scenario" in baseline|date_keys|date_shared) ;; *) die "Unknown scenario: $scenario";; esac
     if [[ " ${scenarios[*]} " != *" $scenario "* ]]; then scenarios+=("$scenario"); fi
 done
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+schema_file=$script_dir/cci_schema.sql
+if [[ ! -f $schema_file ]]; then schema_file=$script_dir/../../tpcds-optimized/tools/tpcds.sql; fi
 query_dir=${QUERY_DIR:-/data/$scale/queryset}
 [[ -f "$query_dir/queries.lst" ]] || die "Missing $query_dir/queries.lst; generate split queries first"
 mapfile -t files < "$query_dir/queries.lst"
@@ -87,12 +90,13 @@ user=${SQL_USER:-sa}
 timeout=${QUERY_TIMEOUT:-3600}
 [[ "$timeout" =~ ^[1-9][0-9]{0,8}$ ]] || die 'QUERY_TIMEOUT must be positive seconds'
 for tool in awk sort sha256sum gzip date tr; do command -v "$tool" >/dev/null || die "Missing utility: $tool"; done
-[[ -f "$script_dir/indexes.sql" ]] || die 'Missing indexes.sql'
+[[ -f "$script_dir/indexes.sql" && -f "$schema_file" ]] || die "Missing indexes.sql or tpcds-optimized/tools/tpcds.sql"
 if [[ ${FINDINGS_RUNNER_FROZEN:-0} != 1 ]]; then
     version_root=${RESULTS_DIR:-/benchmark_results}/.runner_versions
     mkdir -p "$version_root"
     frozen_dir=$(mktemp -d "$version_root/runner.XXXXXX")
     cp -- "$script_dir/benchmark.sh" "$script_dir/indexes.sql" "$frozen_dir/"
+    cp -- "$schema_file" "$frozen_dir/cci_schema.sql"
     export FINDINGS_RUNNER_FROZEN=1
     exec bash "$frozen_dir/benchmark.sh" "${original_args[@]}"
 fi
@@ -106,6 +110,12 @@ backup_file=$backup_dir/$experiment_db.bak
 if [[ -n $resume_dir ]]; then
     [[ -d $resume_dir && ! -L $resume_dir && -f $resume_dir/manifest.txt ]] || die 'Invalid resume directory'
     output_root=$(realpath -- "$resume_dir")
+    [[ $(awk -F= '$1=="protocol"{print $2}' "$output_root/manifest.txt") == cci_main_v3 ]] || die 'Old protocol cannot be resumed; start a fresh columnstore-base experiment'
+    [[ -n $(awk -F= '$1=="base_validated"{print $2}' "$output_root/manifest.txt") ]] || die 'Source CCI validation did not finish; start a fresh experiment'
+    for spec in 'index_definition_sha256:indexes.sql' 'schema_sha256:cci_schema.sql' 'runner_sha256:benchmark.sh'; do
+        key=${spec%%:*}; file=${spec#*:}
+        [[ $(awk -F= -v key="$key" '$1==key{print $2}' "$output_root/manifest.txt") == "$(sha256sum "$script_dir/$file" | awk '{print $1}')" ]] || die "Resume code changed: $file"
+    done
     saved_source=$(awk -F= '$1=="source_database"{print $2}' "$output_root/manifest.txt")
     saved_scale=$(awk -F= '$1=="scale"{print $2}' "$output_root/manifest.txt")
     saved_scenarios=$(awk -F= '$1=="scenarios"{print $2}' "$output_root/manifest.txt")
@@ -133,6 +143,8 @@ trap on_exit EXIT
 if [[ -z $resume_dir ]]; then
 printf 'source_database=%s\nexperiment_database=%s\nscale=%s\nquery_timeout_seconds=%s\nscenarios=%s\nbackup=%s\n' "$source_db" "$experiment_db" "$scale" "$timeout" "${scenarios[*]}" "$backup_file" > "$output_root/manifest.txt"
 printf 'runner_snapshot=%s\nindex_definition_sha256=%s\n' "$script_dir" "$(sha256sum "$script_dir/indexes.sql" | awk '{print $1}')" >> "$output_root/manifest.txt"
+printf 'protocol=cci_main_v3\nbase_storage=clustered_columnstore_all_7_facts\nschema_sha256=%s\nrunner_sha256=%s\n' "$(sha256sum "$script_dir/cci_schema.sql" | awk '{print $1}')" "$(sha256sum "$script_dir/benchmark.sh" | awk '{print $1}')" >> "$output_root/manifest.txt"
+cp -- "$script_dir/cci_schema.sql" "$output_root/cci_schema.sql"
 printf '%s\n' "${selected[@]}" > "$output_root/queries.lst"
 fi
 declare -A sql_hash=()
@@ -163,8 +175,25 @@ IF EXISTS (SELECT 1 FROM sys.master_files WHERE database_id=DB_ID(N'$source_db')
 USE [$source_db];
 IF OBJECT_ID(N'dbo.store_sales',N'U') IS NULL OR OBJECT_ID(N'dbo.catalog_sales',N'U') IS NULL OR OBJECT_ID(N'dbo.web_sales',N'U') IS NULL
     THROW 51000, 'Source must contain the populated TPC-DS sales tables', 1;
-IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id IN (OBJECT_ID(N'dbo.store_sales'),OBJECT_ID(N'dbo.catalog_sales'),OBJECT_ID(N'dbo.web_sales')) AND index_id>0 AND is_primary_key=0 AND is_unique_constraint=0)
-    THROW 51000, 'Use a baseline without secondary indexes on the three sales tables', 1;
+IF (SELECT COUNT(*) FROM sys.tables WHERE schema_id=SCHEMA_ID(N'dbo') AND name IN
+    (N'store_sales',N'catalog_sales',N'web_sales',N'store_returns',N'catalog_returns',N'web_returns',N'inventory')) <> 7
+    THROW 51000, 'All seven TPC-DS fact tables are required', 1;
+IF EXISTS (SELECT 1 FROM sys.indexes i JOIN sys.tables t ON t.object_id=i.object_id
+    WHERE t.is_ms_shipped=0 AND i.index_id>0 AND
+      (i.is_disabled=1 OR i.is_hypothetical=1 OR (i.is_primary_key=0 AND i.is_unique_constraint=0 AND NOT
+       (i.type=5 AND t.schema_id=SCHEMA_ID(N'dbo') AND t.name IN
+       (N'store_sales',N'catalog_sales',N'web_sales',N'store_returns',N'catalog_returns',N'web_returns',N'inventory')))))
+    THROW 51000, 'Use the main CCI schema with original constraints, without other tuning indexes', 1;
+IF (SELECT COUNT(*) FROM sys.indexes i JOIN sys.tables t ON t.object_id=i.object_id
+    WHERE t.schema_id=SCHEMA_ID(N'dbo') AND t.name IN
+    (N'store_sales',N'catalog_sales',N'web_sales',N'store_returns',N'catalog_returns',N'web_returns',N'inventory')
+    AND i.type=5 AND i.is_disabled=0 AND i.name=N'IMCCI_'+t.name) <> 7
+    THROW 51000, 'Source must already contain the seven IMCCI indexes from tpcds-optimized/tools/tpcds.sql', 1;
+IF (SELECT COUNT(*) FROM sys.indexes i JOIN sys.tables t ON t.object_id=i.object_id
+    WHERE t.schema_id=SCHEMA_ID(N'dbo') AND t.name IN
+    (N'store_sales',N'catalog_sales',N'web_sales',N'store_returns',N'catalog_returns',N'web_returns',N'inventory')
+    AND i.is_primary_key=1 AND i.type=2 AND i.is_disabled=0) <> 7
+    THROW 51000, 'Source must retain seven nonclustered fact primary keys', 1;
 IF NOT EXISTS(SELECT 1 FROM dbo.store_sales) OR NOT EXISTS(SELECT 1 FROM dbo.catalog_sales) OR NOT EXISTS(SELECT 1 FROM dbo.web_sales)
     THROW 51000, 'Source sales tables must not be empty', 1;
 SELECT @@VERSION AS server_version;
@@ -188,6 +217,7 @@ EXEC sys.sp_executesql @restore;
 
 printf 'schema,table,row_count\n' > "$output_root/table_rows.csv"
 run_sql -h -1 -W -s , -Q "SET NOCOUNT ON; SELECT s.name,t.name,SUM(p.row_count) FROM sys.dm_db_partition_stats p JOIN sys.tables t ON t.object_id=p.object_id JOIN sys.schemas s ON s.schema_id=t.schema_id WHERE p.index_id IN(0,1) GROUP BY s.name,t.name ORDER BY s.name,t.name;" >> "$output_root/table_rows.csv"
+printf 'base_validated=1\n' >> "$output_root/manifest.txt"
 printf 'scenario,query_id,baseline_ms,average_ms,change_percent,speedup,output_check\n' > "$output_root/comparison.csv"
 printf 'scenario,selected_queries,sum_average_ms,index_reserved_kb,setup_ms,output_reviews\n' > "$output_root/workload.csv"
 else
@@ -250,6 +280,9 @@ for scenario in "${scenarios[@]}"; do
     # Apply the same explicit FULLSCAN protocol after compilation, including
     # any automatic statistics created while compiling the selected queries.
     run_sql -Q "SET NOCOUNT ON; DECLARE @q nvarchar(max); SELECT @q=STRING_AGG(CONVERT(nvarchar(max),N'UPDATE STATISTICS '+QUOTENAME(s.name)+N'.'+QUOTENAME(t.name)+N' WITH FULLSCAN;'),CHAR(10)) FROM sys.tables t JOIN sys.schemas s ON s.schema_id=t.schema_id WHERE t.is_ms_shipped=0; EXEC sys.sp_executesql @q;" > "$phase_dir/statistics.log"
+    # Clear compiled plans once after preparation, BEFORE warm-up. This does not
+    # clear data buffers; measured passes retain the warm-up's cached plans.
+    run_sql -Q 'ALTER DATABASE SCOPED CONFIGURATION CLEAR PROCEDURE_CACHE;' >> "$phase_dir/statistics.log"
     # Capture the normalized estimated plans used for interpretation, untimed.
     for file in "${selected[@]}"; do
         printf 'SET SHOWPLAN_XML ON;\nGO\n:r "%s"\nGO\nSET SHOWPLAN_XML OFF;\nGO\n' "$query_dir/$file" > "$wrapper"
@@ -261,6 +294,10 @@ for scenario in "${scenarios[@]}"; do
     printf 'schema,table,index_name,index_type,column,key_ordinal,included,index_column_id\n' > "$phase_dir/index_columns.csv"
     run_sql -h -1 -W -s , -Q "SET NOCOUNT ON; SELECT s.name,t.name,i.name,i.type_desc,c.name,ic.key_ordinal,ic.is_included_column,ic.index_column_id FROM sys.indexes i JOIN sys.tables t ON t.object_id=i.object_id JOIN sys.schemas s ON s.schema_id=t.schema_id JOIN sys.index_columns ic ON ic.object_id=i.object_id AND ic.index_id=i.index_id JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE i.name LIKE N'FINDINGS[_]%' ORDER BY t.name,i.name,ic.index_column_id;" >> "$phase_dir/index_columns.csv"
     index_kb=$(run_sql -h -1 -W -Q "SET NOCOUNT ON; SELECT COALESCE(SUM(p.reserved_page_count)*8,0) FROM sys.dm_db_partition_stats p JOIN sys.indexes i ON i.object_id=p.object_id AND i.index_id=p.index_id WHERE i.name LIKE N'FINDINGS[_]%';" | tr -d '[:space:]')
+    # Full physical inventory includes shared CCIs and PKs. The FINDINGS-only
+    # number above represents additional B-tree storage relative to the CCI base.
+    printf 'schema,table,index_name,index_type,reserved_kb\n' > "$phase_dir/all_indexes.csv"
+    run_sql -h -1 -W -s , -Q "SET NOCOUNT ON; SELECT s.name,t.name,COALESCE(i.name,N'HEAP'),i.type_desc,SUM(p.reserved_page_count)*8 FROM sys.indexes i JOIN sys.tables t ON t.object_id=i.object_id JOIN sys.schemas s ON s.schema_id=t.schema_id JOIN sys.dm_db_partition_stats p ON p.object_id=i.object_id AND p.index_id=i.index_id GROUP BY s.name,t.name,i.name,i.type_desc ORDER BY s.name,t.name,i.name;" >> "$phase_dir/all_indexes.csv"
     printf 'run,query_id,duration_ms\n' > "$phase_dir/timings.csv"
     printf 'query_id,output_check,sha256\n' > "$phase_dir/result_checks.csv"
     reviews=0

@@ -12,6 +12,7 @@ services:
     volumes:
       - tpcds_shared_data:/workspace
       - ./tpcds-kit:/tpcds-kit
+      - ./tpcds-optimized:/tpcds-optimized
       - ./scripts:/scripts
       - ./query_analyzer:/query_analyzer
       - ./data:/data

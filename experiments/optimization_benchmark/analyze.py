@@ -12,11 +12,8 @@ import xml.etree.ElementTree as ET
 from validation import analyze_run
 
 LABELS = {
-    'baseline': 'Baseline', 'date_keys': 'Date-key indexes',
-    'date_shared': 'Date keys + shared INCLUDE',
-    'date_priority': 'Date keys + query_015 INCLUDE',
-    'columnstore': 'Columnstore',
-    'columnstore_date_keys': 'Columnstore + date-key indexes',
+    'baseline': 'CCI base (7 facts)', 'date_keys': 'CCI + date-key indexes',
+    'date_shared': 'CCI + date keys + shared INCLUDE',
 }
 SCENARIOS = list(LABELS)
 
@@ -47,7 +44,7 @@ def plan_usage(run, result):
             for document in documents:
                 for obj in ET.fromstring(document).findall('.//p:Object', ns):
                     index = obj.get('Index', '').strip('[]')
-                    if index.startswith('FINDINGS_'):
+                    if index:
                         usage.setdefault((scenario, obj.get('Table', ''), index), set()).add(query)
     return [dict(scenario=s, table=t, index=i, distinct_queries=len(q), queries=';'.join(sorted(q)))
             for (s, t, i), q in sorted(usage.items())]
@@ -80,13 +77,13 @@ def plot(result, output):
         axes[0].text(t + e + extent * .02, i, f'{t:.2f}', va='center')
     axes[0].set_xlim(0, extent * 1.3)
     axes[0].set_xlabel('Mean sum of query durations (s)')
-    axes[0].set_title('Five measured passes; error bars: ±1 SD')
+    axes[0].set_title('Five measured passes; error bars: +/-1 SD')
     sizes = [p['index_mib'] for p in phases]
     axes[1].barh(labels, sizes, color='#009a88')
     for i, size in enumerate(sizes):
         axes[1].text(size, i, f' {size:.2f}', va='center')
     axes[1].set_xlim(0, max(1, max(sizes)) * 1.3)
-    axes[1].set_xlabel('Added index reserved storage (MiB)')
+    axes[1].set_xlabel('Additional B-tree reserved storage above CCI base (MiB)')
     axes[1].set_title('Index storage')
     for ax in axes:
         ax.invert_yaxis()
@@ -107,7 +104,7 @@ def plot(result, output):
         errors = [result['queries'][n]['query_015']['sd_ms'] / 1000 for n in names]
         ax.barh(labels, means, xerr=errors, color='#1768ac', error_kw={'capsize': 3})
         ax.invert_yaxis()
-        ax.set(xlabel='Mean query duration (s)', title='query_015: mean ±1 SD, five measurements')
+        ax.set(xlabel='Mean query duration (s)', title='query_015: mean +/-1 SD, five measurements')
         save(fig, '03_query015')
 
     candidates = [n for n in names if n != 'baseline']
@@ -121,8 +118,9 @@ def plot(result, output):
         for j in range(len(candidates)):
             ax.text(j, i, f'{values[i,j]:.2f}x', ha='center', va='center', fontsize=8)
     ax.set_title('Slowest baseline queries: speedup (baseline / scenario)')
-    fig.colorbar(img, ax=ax, label='log2(speedup); colour scale clipped to ±3')
+    fig.colorbar(img, ax=ax, label='log2(speedup); colour scale clipped to +/-3')
     save(fig, '04_query_speedups')
+
 
 
 def analyze(run):
@@ -132,8 +130,10 @@ def analyze(run):
     (output / 'STATUS').write_text('VALIDATING\n', encoding='utf-8')
     try:
         result = analyze_run(run)
+        if result['manifest'].get('protocol') != 'cci_main_v3':
+            raise ValueError('Expected cci_main_v3; historical rowstore-base runs require their original analyzer')
         if not result['complete'] or result['manifest']['scenarios'].split() != SCENARIOS:
-            raise ValueError('Six complete scenarios in the prescribed order are required')
+            raise ValueError('Three complete scenarios in order are required: baseline, date_keys, date_shared')
     except Exception:
         (output / 'STATUS').write_text('VALIDATION_FAILED\n', encoding='utf-8')
         raise
@@ -144,6 +144,7 @@ def analyze(run):
                          mean_workload_seconds=p['sum_average_seconds'], sd_workload_seconds=p['sd_pass_total_seconds'],
                          reduction_percent=-p['change_percent'], speedup=p['workload_speedup'],
                          added_index_mib=p['index_mib'], index_setup_seconds=p['index_setup_seconds'],
+                         total_reserved_mib=p['total_reserved_mib'],
                          faster_over_5pct=p['faster_over_5pct'], slower_over_5pct=p['slower_over_5pct']))
     write_csv(output / 'scenario_statistics.csv', rows)
     write_csv(output / 'query_statistics.csv', result['comparisons'])
@@ -164,19 +165,23 @@ def analyze(run):
     notes = ['# Experiment results', '',
              'Status: ' + ('OUTPUT REVIEW REQUIRED' if unresolved else 'MEASUREMENTS COMPLETE; no unresolved rendered-row differences'),
              f"Scale: {result['manifest']['scale']}. Queries per scenario: {len(result['queries']['baseline'])}.", '',
-             '| Configuration | Mean (s) | SD (s) | Reduction (%) | Indexes (MiB) |',
+             'Reference: clustered columnstore on all seven fact tables, with nonclustered primary keys.',
+             'All reductions and speedups are incremental relative to that CCI base, not the original rowstore.', '',
+             '| Configuration | Mean (s) | SD (s) | Reduction vs CCI (%) | Additional B-tree (MiB) |',
              '|---|---:|---:|---:|---:|']
     for row in rows:
         notes.append(f"| {row['label']} | {row['mean_workload_seconds']:.2f} | {row['sd_workload_seconds']:.2f} | {row['reduction_percent']:.2f} | {row['added_index_mib']:.2f} |")
     notes += ['', '## Interpretation and limitations',
               '- Time is the mean sum of query durations per pass, including the sqlcmd process. It is not the total script duration.',
               '- Five measured passes and one excluded warm-up pass; error bars show one sample standard deviation in each direction, not confidence intervals.',
-              '- Fixed execution order; caches are not cleared. Inspect stability and regressions before interpreting small differences.',
+              '- Fixed execution order. Procedure cache is cleared once after setup, before warm-up; data buffers are retained. No resets during measured passes.',
               '- Uniform FULLSCAN before measurement. Index creation is timed separately; write and maintenance costs are not evaluated.',
               '- Warm-up output comparison preserves duplicates and distinguishes ordering changes and the NULL warning. It does not prove formal SQL equivalence or validate required ordering.',
               '- Plans are estimated: index selection does not establish actual execution cost.',
               '- Identifiers such as query_015 are queryset filenames, not necessarily official TPC-DS query numbers.',
               '- Do not extrapolate to unmeasured scales. INCLUDE variants only change store_sales.']
+    notes += ['- The source already has the main optimized CCI schema; no CCI conversion is performed. Additional B-tree storage excludes existing CCIs and PKs; all_indexes.csv records total physical index storage.',
+              '- Use identical source_queries hashes across scales before attributing differences to dataset growth.']
     if result['resumed']:
         notes.append('- RESUMED: retained phases precede the interruption; repeat a clean run before drawing definitive conclusions.')
     if unresolved:

@@ -59,7 +59,21 @@ def analyze_run(folder):
     selected = [(line[:-4] if line.endswith('.sql') else line) for line in (folder / 'queries.lst').read_text().splitlines()]
     if not selected or len(selected) != len(set(selected)):
         raise ValueError('Invalid query selection')
-    workload = {r['scenario']: r for r in csv_rows(folder / 'workload.csv')}
+    if manifest.get('protocol') == 'cci_main_v3':
+        if manifest.get('schema_sha256') != hashlib.sha256((folder/'cci_schema.sql').read_bytes()).hexdigest():
+            raise ValueError('Optimized CCI schema hash mismatch')
+        hashes = {}
+        for line in (folder/'query_sha256.txt').read_text().splitlines():
+            digest, name = line.split(maxsplit=1)
+            hashes[Path(name).name] = digest
+        for q in selected:
+            source = folder/'source_queries'/(q+'.sql')
+            if hashes.get(q+'.sql') != hashlib.sha256(source.read_bytes()).hexdigest():
+                raise ValueError(f'{q}: source SQL hash mismatch')
+    workload_rows = csv_rows(folder / 'workload.csv')
+    workload = {r['scenario']: r for r in workload_rows}
+    if len(workload) != len(workload_rows):
+        raise ValueError('Duplicate workload scenario')
     phases, queries, pending = [], {}, []
     for scenario in manifest['scenarios'].split():
         path = folder / scenario
@@ -72,8 +86,14 @@ def analyze_run(folder):
             if q not in samples or n not in range(1, 6) or n in samples[q] or duration < 0 or not math.isfinite(duration):
                 raise ValueError(f'{scenario}: invalid/duplicate measured execution')
             samples[q][n] = duration
-        summary = {r['query_id']: r for r in csv_rows(path / 'summary.csv')}
-        checks = {r['query_id']: r for r in csv_rows(path / 'result_checks.csv')}
+        summary_rows = csv_rows(path / 'summary.csv')
+        check_rows = csv_rows(path / 'result_checks.csv')
+        summary = {r['query_id']: r for r in summary_rows}
+        checks = {r['query_id']: r for r in check_rows}
+        if len(summary) != len(summary_rows) or len(checks) != len(check_rows):
+            raise ValueError(f'{scenario}: duplicate summary or output check')
+        if set(checks) != set(selected):
+            raise ValueError(f'{scenario}: output check coverage mismatch')
         if set(summary) != set(selected):
             raise ValueError(f'{scenario}: summary coverage mismatch')
         stats = {}
@@ -96,10 +116,21 @@ def analyze_run(folder):
             raise ValueError(f'{scenario}: workload total mismatch')
         queries[scenario] = stats
         pass_totals = [sum(samples[q][n] for q in selected)/1000 for n in range(1,6)]
+        storage = csv_rows(path / 'all_indexes.csv') if manifest.get('protocol') == 'cci_main_v3' else []
+        facts = {'store_sales', 'catalog_sales', 'web_sales', 'store_returns', 'catalog_returns', 'web_returns', 'inventory'}
+        if manifest.get('protocol') == 'cci_main_v3':
+            cci_tables = {r['table'] for r in storage if r['schema'] == 'dbo' and r['index_type'] == 'CLUSTERED COLUMNSTORE'}
+            # SQL Server DMV uses CLUSTERED COLUMNSTORE (spaces), not the DDL spelling.
+            if cci_tables != facts:
+                raise ValueError(f'{scenario}: expected clustered columnstores on all seven fact tables')
+            if any(r['index_name'] != 'IMCCI_'+r['table'] for r in storage
+                   if r['schema'] == 'dbo' and r['table'] in facts and r['index_type'] == 'CLUSTERED COLUMNSTORE'):
+                raise ValueError(f'{scenario}: expected IMCCI names from the main optimized schema')
         phases.append(dict(scenario=scenario, queries=len(stats), sum_average_seconds=sum(s['average_ms'] for s in stats.values()) / 1000,
                            sd_pass_total_seconds=statistics.stdev(pass_totals), median_pass_total_seconds=statistics.median(pass_totals),
                            pass_totals_seconds=pass_totals,
                            index_mib=float(workload[scenario]['index_reserved_kb']) / 1024,
+                           total_reserved_mib=sum(float(r['reserved_kb']) for r in storage)/1024 if storage else None,
                            index_setup_seconds=float(workload[scenario]['setup_ms']) / 1000,
                            output_checks=dict(Counter(s['output_check'] for s in stats.values()))))
     if 'baseline' not in queries:
@@ -123,7 +154,7 @@ def analyze_run(folder):
                      faster_over_5pct=sum(s['change_percent'] is not None and s['change_percent'] < -5 for s in queries[name].values()),
                      slower_over_5pct=sum(s['change_percent'] is not None and s['change_percent'] > 5 for s in queries[name].values()))
     pairs = []
-    for candidate, reference in [('date_shared', 'date_keys'), ('date_priority', 'date_keys'), ('combined', 'date_shared'), ('combined', 'columnstore'), ('columnstore_date_keys', 'columnstore'), ('columnstore_date_keys', 'date_keys'), ('columnstore_date_keys', 'combined')]:
+    for candidate, reference in [('date_shared', 'date_keys')]:
         if candidate in queries and reference in queries:
             before = sum(s['average_ms'] for s in queries[reference].values())
             after = sum(s['average_ms'] for s in queries[candidate].values())
