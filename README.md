@@ -99,7 +99,7 @@ If `queries.lst` is missing, the script prints a warning and exits without profi
 docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh --queryset --split-queries --no-recompile
 ```
 
-**Usage:** `bash /scripts/04_profile_queries.sh <SCALE_FOLDER> <DB_NAME> [--from INDEX] [--to INDEX] [--list INDEX_1 INDEX_2 ...]`
+**Usage:** `bash /scripts/04_profile_queries.sh <SCALE_FOLDER> <DB_NAME> [--from INDEX] [--to INDEX] [--list INDEX_1 INDEX_2 ...] [--optimized] [--full-stats-after-warmup] [--compare-to PATH] [--out PATH]`
 
 Query indices start at 1, and both range endpoints are inclusive. `--list` overrides the range. If a query fails, profiling stops immediately: its failed execution is not added to `timings.csv`, and no final summary or HTML report is generated for that incomplete run.
 
@@ -115,15 +115,58 @@ docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01
 # Profile those queries with two warm-up runs and ten measured runs
 docker exec -it -e WARMUP_RUNS=2 -e MEASURED_RUNS=10 tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01 --list 1 3
 
+# Also compare the new run against a previous run (path inside the container)
+docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01 \
+  --compare-to /benchmark_results/<prev_run_dir>
+
+# Write directly to a named directory instead of a timestamped one
+docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01 \
+  --out /benchmark_results/my_profile
+
 ```
 
 **SQL Server compatibility note:** Q23 (generated from `query22.tpl`) casts `inv_quantity_on_hand` to `decimal(19,4)` before `AVG`; without this cast, SQL Server reports an integer overflow for the 5GB and 10GB datasets.
 
-Each profiling run creates a timestamped directory under `benchmark_results/` containing:
+By default, each profiling run creates a timestamped directory under
+`benchmark_results/` (or `$RESULTS_DIR`). Use `--out PATH` to write directly to
+that directory instead, without appending a timestamp or database name.
+Relative paths are resolved from the script's working directory; inside Docker,
+use a container path such as `/benchmark_results/my_profile`. Missing parent
+directories are created. Existing output files are overwritten, so use a separate
+directory from the `--compare-to` baseline.
+
+The output directory contains:
 
 * `timings.csv`: every measured execution time for each query.
 * `summary.csv`: queries ranked from slowest to fastest by their average execution time.
 * `report.html`: a self-contained horizontal bar chart of the ranked averages. Open this file in a browser to identify the slowest queries; the top 10 are highlighted in red.
+
+With `--compare-to`, the previous run directory (or its `summary.csv`) is used as
+the baseline, and the new run also contains `cmp_summary.csv` and `cmp_report.html`.
+Comparison requires Python 3 in the environment running the profiling script;
+without this flag, profiling has no Python dependency.
+
+To compare existing runs directly on the host (Python 3, standard library only):
+
+```bash
+./scripts/cmp_query_profiles benchmark_results/NEW/summary.csv \
+  benchmark_results/BASELINE/summary.csv --report cmp_report.html > cmp_summary.csv
+```
+
+The [comparison script](scripts/cmp_query_profiles) accepts two CSV files or run
+directories. It prints CSV to stdout and writes `report.html` in the current
+directory unless `--report PATH` is given. A is the current run, B the baseline:
+rows are joined by `query_id` and ordered by A's rank. All original A columns are
+preserved, followed by `_delta` and `_delta_pct` columns for `average_ms`, `min_ms`,
+`max_ms`, `total_ms`, and `percent_of_total`. Deltas are **A - B**, with percentages
+calculated as **100 * (A - B) / B**. For example, 80 ms versus 100 ms is -20 ms
+(-20%), shown in smaller green text; increases are red and unchanged values gray.
+Share-of-total deltas are percentage points, not a measure of query speedup.
+
+Queries missing from B remain in the output with empty delta fields (`N/A` in
+HTML); queries only in B are omitted. A zero baseline yields an undefined
+percentage (empty CSV / `N/A`), except zero versus zero is 0%. Compare averages,
+not totals, when the measured-run counts differ.
 
 Query names are the listed SQL filenames without the `.sql` extension, for example `query_003` for `data/<SCALE_FOLDER>/queryset/query_003.sql`. Individual timings include the small, approximately constant `sqlcmd` process startup overhead. This profiling script is intended for optimization work; continue to use `03_run_benchmark.sh` for comparable full-suite benchmark results.
 

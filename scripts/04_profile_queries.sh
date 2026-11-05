@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 2 || -z "$1" || -z "$2" ]]; then
-    echo "Usage: $0 <SCALE_FOLDER> <DB_NAME> [--from INDEX] [--to INDEX] [--list INDEX ...] [--full-stats-after-warmup]" >&2
+    echo "Usage: $0 <SCALE_FOLDER> <DB_NAME> [--from INDEX] [--to INDEX] [--list INDEX ...] [--optimized] [--full-stats-after-warmup] [--compare-to PATH] [--out PATH]" >&2
     exit 1
 fi
 
@@ -28,6 +28,9 @@ fi
 WARMUP_RUNS=$((10#$WARMUP_RUNS))
 TOTAL_RUNS=$((WARMUP_RUNS + MEASURED_RUNS))
 FULL_STATS_AFTER_WARMUP=false
+COMPARE_TO=""
+OUT_DIR=""
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -70,12 +73,46 @@ while [[ $# -gt 0 ]]; do
             FULL_STATS_AFTER_WARMUP=true
             shift
             ;;
+        --compare-to)
+            if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
+                echo "Error: --compare-to requires a profiling run directory or summary.csv path" >&2
+                exit 1
+            fi
+            COMPARE_TO="$2"
+            shift 2
+            ;;
+        --out)
+            if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
+                echo "Error: --out requires an output directory path" >&2
+                exit 1
+            fi
+            OUT_DIR="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown parameter: $1" >&2
             exit 1
             ;;
     esac
 done
+
+if [[ -n "$COMPARE_TO" ]]; then
+    if [[ -d "$COMPARE_TO" ]]; then
+        COMPARE_TO="$COMPARE_TO/summary.csv"
+    fi
+    if [[ ! -f "$COMPARE_TO" || ! -r "$COMPARE_TO" ]]; then
+        echo "Error: Comparison summary was not found or is not readable: $COMPARE_TO" >&2
+        exit 1
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "Error: --compare-to requires python3 in the profiling environment." >&2
+        exit 1
+    fi
+    if [[ ! -f "$SCRIPT_DIR/cmp_query_profiles" ]]; then
+        echo "Error: Comparison script was not found: $SCRIPT_DIR/cmp_query_profiles" >&2
+        exit 1
+    fi
+fi
 
 if [ -z "$DB_NAME" ]; then
     echo "Error: Missing database name."
@@ -150,11 +187,10 @@ for source_file in "${query_files[@]}"; do
     STATEMENTS+=("${source_file%.sql}"$'\t'"$source_file"$'\t1\t'"$query_file")
 done
 
-mkdir -p "$RESULTS_DIR"
 RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
-RUN_RESULTS_DIR="$RESULTS_DIR/${DB_NAME}_${RUN_ID}"
-mkdir -p "$RUN_RESULTS_DIR"
-chmod 777 "$RUN_RESULTS_DIR"
+RUN_RESULTS_DIR=${OUT_DIR:-"$RESULTS_DIR/${DB_NAME}_${RUN_ID}"}
+mkdir -p -- "$RUN_RESULTS_DIR"
+chmod 777 -- "$RUN_RESULTS_DIR"
 
 RAW_CSV="$RUN_RESULTS_DIR/timings.csv"
 SUMMARY_CSV="$RUN_RESULTS_DIR/summary.csv"
@@ -198,7 +234,7 @@ for ((RUN = 1; RUN <= TOTAL_RUNS; RUN++)); do
             "$RUN" "$TOTAL_RUNS" "$QUERY_INDEX" "$STATEMENT_COUNT" "$query_id" "$source_file" "$statement_number"
         START_MS=$(date +%s%3N)
 
-        if "$SQLCMD_BIN" -b -S localhost -U sa -P "$SA_PASS" -C -d "$DB_NAME" \
+        if "$SQLCMD_BIN" -b -I -S localhost -U sa -P "$SA_PASS" -C -d "$DB_NAME" \
             -i "$statement_file" -o /dev/null; then
             END_MS=$(date +%s%3N)
             DURATION_MS=$((END_MS - START_MS))
@@ -306,6 +342,11 @@ awk -F, -v max_average="$MAX_AVERAGE_MS" -v database="$DB_NAME" -v run_id="$RUN_
     }
 ' "$SUMMARY_CSV" > "$REPORT_HTML"
 
+if [[ -n "$COMPARE_TO" ]]; then
+    python3 "$SCRIPT_DIR/cmp_query_profiles" "$SUMMARY_CSV" "$COMPARE_TO" \
+        --report "$RUN_RESULTS_DIR/cmp_report.html" > "$RUN_RESULTS_DIR/cmp_summary.csv"
+fi
+
 AVERAGE_MS=$((TOTAL_SUM_MS / MEASURED_RUNS))
 AVERAGE_SEC=$(awk "BEGIN {printf \"%.3f\", $AVERAGE_MS/1000}")
 
@@ -315,4 +356,8 @@ echo "Total time for $MEASURED_RUNS measured runs : ${TOTAL_SUM_MS}ms"
 echo "Average suite execution time   : ${AVERAGE_MS}ms (${AVERAGE_SEC}s)"
 echo "Ranked timing summary          : $SUMMARY_CSV"
 echo "Visual report                  : $REPORT_HTML"
+if [[ -n "$COMPARE_TO" ]]; then
+    echo "Comparison summary             : $RUN_RESULTS_DIR/cmp_summary.csv"
+    echo "Comparison report              : $RUN_RESULTS_DIR/cmp_report.html"
+fi
 echo "=================================================="
