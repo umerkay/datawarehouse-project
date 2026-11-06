@@ -54,15 +54,12 @@ from (select i_category
                   ,d_qoy
                   ,d_moy
                   ,s_store_id
-                  ,sum(coalesce(ss_sales_price*ss_quantity,0)) sumsales
-            from store_sales
-                ,date_dim
-                ,store
-                ,item
-       where  ss_sold_date_sk=d_date_sk
-          and ss_item_sk=i_item_sk
-          and ss_store_sk = s_store_sk
-          and d_month_seq between [DMS] and [DMS]+11
+                  ,sum(coalesce(mv.sum_sales_price_times_quantity,0)) sumsales
+            from MV_Store_Sales_Daily_Item mv WITH (NOEXPAND)
+                  join date_dim on mv.ss_sold_date_sk = d_date_sk
+                  join store on mv.ss_store_sk = s_store_sk
+                  join item on mv.ss_item_sk = i_item_sk
+       where  d_month_seq between [DMS] and [DMS]+11
        group by  rollup(i_category, i_class, i_brand, i_product_name, d_year, d_qoy, d_moy,s_store_id))dw1) dw2
 where rk <= 100
 order by i_category
