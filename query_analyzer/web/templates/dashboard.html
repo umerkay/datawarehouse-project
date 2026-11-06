@@ -11,7 +11,7 @@
 <div class="eyebrow">TPC-DS / SQL Server</div>
 <h1>Optimization radar<!--__SCALE__-->
 </h1>
-<p>Your entire workload in one view: where to start, recurring patterns, and hypotheses to test.</p>
+<p>Explore estimated plans and SQL Server suggestions to choose optimization experiments.</p>
 </header>
 <main>
 <!--__DATASETS__-->
@@ -22,9 +22,13 @@
 <noscript>
 <div class="notice">All results are visible. Enable JavaScript only if you want to use search and filters.</div>
 </noscript>
+<section class="panel">
+<h2>01 - Optimization strategies</h2>
+<!--__STRATEGIES__-->
+</section>
 <div class="grid">
 <section class="panel">
-<h2>01 - Where to start</h2>
+<h2>Historical timing context</h2>
 <p class="muted">
 <!--__BASIS__-->
 </p>
@@ -47,6 +51,7 @@
 </div>
 <section class="panel">
 <h2>03 - Shared index candidates</h2>
+<p><a href="indexes.html">Compare recommendations across sizes and inspect INCLUDE variants</a></p>
 <p class="muted">Grouped by table and exact columns, counting distinct queries. Look for changes that could benefit multiple queries. Suggested impact percentages are not added together.</p>
 <div class="scroll">
 <!--__INDEXES__-->

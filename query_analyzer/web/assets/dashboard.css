@@ -191,6 +191,15 @@ button {
   padding:24px;
   color:#536b80
 }
+.strategy-card { border:1px solid #64748b; border-radius:8px; padding:12px; margin:12px 0; }
+.strategy-family { margin:16px 0; }
+.strategy-family > summary { cursor:pointer; font-size:1.1em; font-weight:600; }
+.strategy-card > summary { cursor:pointer; font-weight:600; }
+.strategy-card li { margin:10px 0; overflow-wrap:anywhere; }
+.plan-tree { overflow-x:auto; }
+.plan-tree ul { border-left:2px solid #64748b; margin-left:12px; padding-left:20px; list-style:none; }
+.plan-tree li { margin:12px 0; min-width:260px; }
+.plan-tree code { overflow-wrap:anywhere; white-space:pre-wrap; }
 @media(max-width:850px) {
   .grid {
     grid-template-columns:1fr

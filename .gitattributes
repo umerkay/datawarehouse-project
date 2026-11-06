@@ -2,8 +2,8 @@ query_analyzer/** text=auto eol=lf
 query_analyzer/datasets/** -text
 query_analyzer/datasets/*.json text eol=lf
 .github/workflows/** text eol=lf
-scripts/*.sh text eol=lf
-scripts/*.sql text eol=lf
+*.sh text eol=lf
+*.sql text eol=lf
 tpcds-kit/tools/tpcds.dst text eol=lf
 tpcds-kit/query_templates/templates.lst text eol=lf
 tpcds-kit/query_templates/query78.tpl text eol=lf

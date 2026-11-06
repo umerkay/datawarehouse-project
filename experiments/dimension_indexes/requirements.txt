@@ -1,0 +1,4 @@
+jupyterlab>=4,<5
+ipykernel>=6,<8
+pandas>=2.2,<4
+matplotlib>=3.9,<4
