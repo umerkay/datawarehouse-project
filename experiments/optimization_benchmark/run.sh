@@ -34,12 +34,12 @@ if [[ ${#databases[@]} -gt 0 ]]; then
     done
     [[ ${databases[0]} != "${databases[1]}" && ${databases[0]} != "${databases[2]}" && ${databases[1]} != "${databases[2]}" ]] || die 'Use a different source database for each scale'
     scales=(1GB 2GB 5GB)
-    flags=()
-    if ((dry_run)); then flags+=(--dry-run); fi
     for i in 0 1 2; do
         printf '\nSales index experiment: %s (%s)\n' "${scales[i]}" "${databases[i]}"
-        bash "$here/run.sh" --scale "${scales[i]}" --database "${databases[i]}" \
-            --query-scale "$query_scale" --service "$service" "${flags[@]}"
+        command=(bash "$here/run.sh" --scale "${scales[i]}" --database "${databases[i]}" \
+            --query-scale "$query_scale" --service "$service")
+        if ((dry_run)); then command+=(--dry-run); fi
+        "${command[@]}"
     done
     exit 0
 fi
@@ -55,7 +55,7 @@ if [[ ! -d "$here/.venv" ]]; then "$bootstrap" -m venv "$here/.venv"; fi
 if [[ -x "$here/.venv/bin/python" ]]; then python_bin=$here/.venv/bin/python
 else python_bin=$here/.venv/Scripts/python.exe; fi
 if ((!dry_run)); then
-    "$python_bin" -m pip install "matplotlib==3.11.2" "numpy==2.5.4"
+    "$python_bin" -m pip install "matplotlib==3.9.4" "numpy==2.0.2"
     "$python_bin" -c 'import matplotlib, numpy'
 fi
 
@@ -71,7 +71,6 @@ results=$root/benchmark_results
 mkdir -p "$results"
 results=$(cd -- "$results" && pwd)
 scenarios=(baseline date_keys date_shared)
-extra=()
 if [[ -n $resume ]]; then
     [[ -d $resume && -f $resume/manifest.txt ]] || die '--resume must point to an existing raw run'
     resume=$(cd -- "$resume" && pwd)
@@ -89,7 +88,6 @@ for key, name in [('index_definition_sha256', 'indexes.sql'), ('schema_sha256', 
 PY
     parent=$(dirname -- "$resume")
     remote_results=/benchmark_results
-    extra=(--resume "/benchmark_results/${resume#"$results/"}")
 else
     parent=$results/optimization_$token
     remote_results=/benchmark_results/optimization_$token
@@ -101,7 +99,10 @@ for file in benchmark.sh indexes.sql; do
 done
 docker_cmd cp "$(host_path "$root/tpcds-optimized/tools/tpcds.sql")" "$container:$remote/cci_schema.sql"
 command=(compose exec -T -e "RESULTS_DIR=$remote_results" -e "QUERY_DIR=/data/$query_scale/queryset" "$service" bash "$remote/benchmark.sh"
-         "$scale" "$database" --scenarios "${scenarios[@]}" "${extra[@]}")
+         "$scale" "$database" --scenarios "${scenarios[@]}")
+if [[ -n $resume ]]; then
+    command+=(--resume "/benchmark_results/${resume#"$results/"}")
+fi
 if ((dry_run)); then docker_cmd "${command[@]}" --dry-run; exit $?; fi
 mkdir -p "$parent"
 "$python_bin" - "$here" "$parent" "$token" "$scale" "$database" "$query_scale" "${scenarios[@]}" <<'PY'
