@@ -30,6 +30,7 @@ tpcds-kit/tools/checksum
 # Ignore secrets
 .env
 .env.*
+.venv
 !.env.example
 __pycache__/
 *.py[cod]

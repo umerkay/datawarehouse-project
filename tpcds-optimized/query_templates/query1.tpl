@@ -38,25 +38,27 @@ define YEAR = random(1998, 2002, uniform);
 define AGG_FIELD = text({"SR_RETURN_AMT",1},{"SR_FEE",1},{"SR_REFUNDED_CASH",1},{"SR_RETURN_AMT_INC_TAX",1},{"SR_REVERSED_CHARGE",1},{"SR_STORE_CREDIT",1},{"SR_RETURN_TAX",1});
 define _LIMIT=100;
 
-with customer_total_return as
-(select sr_customer_sk as ctr_customer_sk
-,sr_store_sk as ctr_store_sk
-,sum([AGG_FIELD]) as ctr_total_return
-from store_returns
-,date_dim
-where sr_returned_date_sk = d_date_sk
-and d_year =[YEAR]
-group by sr_customer_sk
-,sr_store_sk)
-[_LIMITA] select [_LIMITB] c_customer_id
-from customer_total_return ctr1
-,store
-,customer
-where ctr1.ctr_total_return > (select avg(ctr_total_return)*1.2
-from customer_total_return ctr2
-where ctr1.ctr_store_sk = ctr2.ctr_store_sk)
-and s_store_sk = ctr1.ctr_store_sk
-and s_state = '[STATE]'
-and ctr1.ctr_customer_sk = c_customer_sk
-order by c_customer_id
+WITH customer_total_return AS (
+    SELECT sr_customer_sk AS ctr_customer_sk,
+           sr_store_sk AS ctr_store_sk,
+           SUM([AGG_FIELD]) AS ctr_total_return
+    FROM store_returns
+    INNER JOIN date_dim ON sr_returned_date_sk = d_date_sk
+    WHERE d_year = [YEAR]
+    GROUP BY sr_customer_sk, sr_store_sk
+),
+store_threshold AS (
+    SELECT ctr_store_sk,
+           AVG(ctr_total_return) * 1.2 AS threshold_limit
+    FROM customer_total_return
+    GROUP BY ctr_store_sk
+)
+[_LIMITA] SELECT [_LIMITB] c_customer_id
+FROM customer_total_return ctr1
+INNER JOIN store_threshold st ON ctr1.ctr_store_sk = st.ctr_store_sk
+INNER JOIN store ON s_store_sk = ctr1.ctr_store_sk
+INNER JOIN customer ON ctr1.ctr_customer_sk = c_customer_sk
+WHERE ctr1.ctr_total_return > st.threshold_limit
+  AND s_state = '[STATE]'
+ORDER BY c_customer_id
 [_LIMITC];
