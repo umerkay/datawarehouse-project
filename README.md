@@ -251,6 +251,9 @@ Each graph also analyzes **how** tables are used. Clicking a table shows its mos
 
 ## Analyze query execution plans
 
+To test nine dimension indexes while retaining the seven fact CCIs, use the
+[dimension index experiment and results notebook](experiments/dimension_indexes/README.md).
+
 The shareable offline analyzer is in [`query_analyzer/`](query_analyzer/README.md).
 It includes captured plans for 1GB, 2GB and 5GB, historical timing summaries, and
 instructions for additional captures. The 10GB plans are pending. No raw datasets
