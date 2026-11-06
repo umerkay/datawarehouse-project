@@ -12,6 +12,31 @@ from .analysis import analyze, read_plan_documents
 from .plan_structure import structure
 
 
+def read_indexes(path):
+    grouped = {}
+    required = {'schema', 'table', 'index_name', 'index_type', 'filter_definition', 'column_name', 'key_ordinal', 'is_included_column'}
+    with Path(path).open(encoding='utf-8-sig', newline='') as stream:
+        reader = csv.DictReader(stream, strict=True)
+        if not required <= set(reader.fieldnames or []):
+            raise ValueError('Index CSV missing required catalogue columns')
+        for row in reader:
+            if any(row[k] is None for k in required):
+                raise ValueError('Incomplete index CSV row')
+            ordinal = int(row['key_ordinal'])
+            included = int(row['is_included_column'])
+            if ordinal < 0 or included not in (0, 1):
+                raise ValueError('Invalid index column ordinal or inclusion flag')
+            key = (row['schema'], row['table'], row['index_name'])
+            index = grouped.setdefault(key, dict(schema=key[0], table=key[1], name=key[2], type=row['index_type'], filter=row['filter_definition'], key_columns=[], includes=[]))
+            if included:
+                index['includes'].append(row['column_name'])
+            elif ordinal:
+                index['key_columns'].append((ordinal, row['column_name']))
+    for index in grouped.values():
+        index['keys'] = [name for _, name in sorted(index.pop('key_columns'))]
+    return list(grouped.values())
+
+
 def read_timings(path):
     timings, errors = {}, []
     with Path(path).open(encoding='utf-8-sig', newline='') as stream:
@@ -35,7 +60,7 @@ def read_timings(path):
 
 
 def load_scale(base, spec):
-    source = dict(plans={}, timings={}, errors=[], plan_source=spec.get('plans'),
+    source = dict(plans={}, timings={}, errors=[], index_inventory=None, plan_source=spec.get('plans'),
                   timing_source=spec.get('summary'))
     def add_plan(name, documents):
         path = Path(name)
@@ -80,6 +105,14 @@ def load_scale(base, spec):
             source['errors'].extend(errors)
         except (ValueError, OSError, csv.Error) as exc:
             source['errors'].append(f'{summary.name}: {exc}')
+    if spec.get('indexes_csv'):
+        try:
+            source['index_inventory'] = read_indexes(Path(base) / spec['indexes_csv'])
+        except (ValueError, OSError, csv.Error) as exc:
+            source['errors'].append('Index inventory: ' + str(exc))
+    if spec.get('indexed_plans') or spec.get('indexed_summary'):
+        source['indexed'] = load_scale(base, dict(plans=spec.get('indexed_plans', ''), summary=spec.get('indexed_summary', ''), **({'indexes_csv': spec['indexed_indexes_csv']} if spec.get('indexed_indexes_csv') else {})))
+        source['errors'].extend('Indexed: ' + error for error in source['indexed']['errors'])
     return source
 
 

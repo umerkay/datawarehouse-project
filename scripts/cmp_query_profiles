@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""Compare profiling summaries, keeping A's values and rank order."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+from decimal import Decimal, InvalidOperation
+from html import escape
+import io
+from pathlib import Path
+import sys
+from typing import Optional
+
+
+METRICS = ("average_ms", "min_ms", "max_ms", "total_ms", "percent_of_total")
+FIELDS = ("rank", "query_id", "source_file", "statement_number") + METRICS
+
+
+def summary_path(path: Path) -> Path:
+    return path / "summary.csv" if path.is_dir() else path
+
+
+def read_summary(path: Path) -> tuple[list[str], list[dict[str, str]]]:
+    with path.open(newline="", encoding="utf-8-sig") as source:
+        reader = csv.DictReader(source, strict=True)
+        fields = reader.fieldnames
+        if fields is None or not set(FIELDS).issubset(fields):
+            raise ValueError(f"{path}: expected columns: {', '.join(FIELDS)}")
+        if len(set(fields)) != len(fields):
+            raise ValueError(f"{path}: duplicate column names")
+        rows = []
+        seen = set()
+        for line, row in enumerate(reader, 2):
+            if None in row or any(value is None for value in row.values()):
+                raise ValueError(f"{path}:{line}: incorrect number of columns")
+            if not row["query_id"].strip() or row["query_id"] in seen:
+                raise ValueError(f"{path}:{line}: empty or duplicate query_id")
+            seen.add(row["query_id"])
+            try:
+                if int(row["rank"]) < 1:
+                    raise ValueError("rank must be positive")
+                for metric in METRICS:
+                    value = Decimal(row[metric])
+                    if not value.is_finite() or value < 0:
+                        raise ValueError(f"{metric} must be finite and nonnegative")
+            except (ValueError, InvalidOperation) as error:
+                raise ValueError(f"{path}:{line}: invalid numeric value ({error})") from error
+            rows.append(row)
+    return list(fields), sorted(rows, key=lambda row: int(row["rank"]))
+
+
+def delta_values(current: str, previous: str) -> tuple[str, str]:
+    value, baseline = Decimal(current), Decimal(previous)
+    delta = value - baseline
+    percentage = delta / baseline * 100 if baseline else None
+    if baseline == 0 and delta == 0:
+        percentage = Decimal(0)
+    return format(delta, "f"), "" if percentage is None else f"{percentage:.2f}"
+
+
+def compare(
+    current: list[dict[str, str]], previous: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    baseline = {row["query_id"]: row for row in previous}
+    result = []
+    for row in current:
+        compared = dict(row)
+        old = baseline.get(row["query_id"])
+        for metric in METRICS:
+            delta, percentage = ("", "") if old is None else delta_values(row[metric], old[metric])
+            compared[f"{metric}_delta"] = delta
+            compared[f"{metric}_delta_pct"] = percentage
+        result.append(compared)
+    return result
+
+
+def metric_cell(row: dict[str, str], metric: str) -> str:
+    value = escape(row[metric]) + ("%" if metric == "percent_of_total" else "")
+    delta = row[f"{metric}_delta"]
+    if not delta:
+        annotation = '<small class="delta neutral">N/A (not in B)</small>'
+    else:
+        change = Decimal(delta)
+        color = "better" if change < 0 else "worse" if change > 0 else "neutral"
+        unit = "pp" if metric == "percent_of_total" else "ms"
+        percentage = row[f"{metric}_delta_pct"]
+        relative = f"{Decimal(percentage):+.2f}%" if percentage else "N/A"
+        annotation = (
+            f'<small class="delta {color}">{change:+f} {unit} ({relative})</small>'
+        )
+    return f"<td>{value}{annotation}</td>"
+
+
+def render_report(rows: list[dict[str, str]], current: Path, previous: Path) -> str:
+    maximum = max((Decimal(row["average_ms"]) for row in rows), default=Decimal(0))
+    body = []
+    for row in rows:
+        width = Decimal(row["average_ms"]) / maximum * 100 if maximum else Decimal(0)
+        cells = "".join(
+            metric_cell(row, metric)
+            for metric in ("average_ms", "percent_of_total", "min_ms", "max_ms", "total_ms")
+        )
+        body.append(
+            f'<tr><td>{escape(row["rank"])}</td><td>{escape(row["query_id"])}</td>'
+            f'{cells}<td class="chart"><div class="bar" style="width:{width:.2f}%">'
+            "</div></td></tr>"
+        )
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TPC-DS per-query comparison</title>
+<style>
+body{{font:14px system-ui,sans-serif;margin:2rem;color:#1f2937}}
+h1{{margin-bottom:.25rem}}.meta{{color:#4b5563;margin-top:0}}
+table{{border-collapse:collapse;width:100%}}th,td{{padding:.45rem .6rem;border-bottom:1px solid #e5e7eb;text-align:right}}
+th{{position:sticky;top:0;background:#fff}}th:nth-child(2),td:nth-child(2){{text-align:left}}
+.chart{{width:45%;min-width:260px}}.bar{{background:#2563eb;height:1.15rem;min-width:2px;border-radius:2px}}
+tbody tr:nth-child(-n+10) .bar{{background:#dc2626}}
+.delta{{display:block;font-size:.8em;white-space:nowrap}}.better{{color:#15803d}}.worse{{color:#dc2626}}.neutral{{color:#6b7280}}
+</style></head><body>
+<h1>TPC-DS per-query comparison</h1>
+<p class="meta">A (current): <strong>{escape(str(current))}</strong><br>
+B (baseline): <strong>{escape(str(previous))}</strong></p>
+<p class="meta">Values and rank order are from A. Changes are A &minus; B;
+percentages are relative to B. Lower timings are better (green), higher timings
+are worse (red). Share-of-total changes use percentage points (pp), not speedup.
+N/A means the query is absent from B or a percentage has a zero baseline.
+Top 10 bars are highlighted.</p>
+<table><thead><tr><th>Rank</th><th>Query</th><th>Average (ms)</th>
+<th>% of total time</th><th>Min (ms)</th><th>Max (ms)</th><th>Total (ms)</th>
+<th class="chart">Relative average</th></tr></thead><tbody>
+{''.join(body)}
+</tbody></table>
+<p class="meta">Only queries in A are shown; queries found only in B are omitted.
+Times include sqlcmd process startup overhead. Total times depend on the number
+of measured runs; use averages when comparing runs with different counts.</p>
+</body></html>
+"""
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("a", type=Path, help="current summary.csv or profiling run directory")
+    parser.add_argument("b", type=Path, help="baseline summary.csv or profiling run directory")
+    parser.add_argument(
+        "--report", type=Path, default=Path("report.html"),
+        help="HTML output path (default: report.html); comparison CSV goes to stdout",
+    )
+    args = parser.parse_args(argv)
+    current, previous = summary_path(args.a), summary_path(args.b)
+    try:
+        if args.report.resolve() in (current.resolve(), previous.resolve()):
+            raise ValueError("HTML report must not overwrite an input summary")
+        fields, a_rows = read_summary(current)
+        _, b_rows = read_summary(previous)
+        extra_fields = [
+            f"{metric}_{suffix}" for metric in METRICS for suffix in ("delta", "delta_pct")
+        ]
+        if set(fields).intersection(extra_fields):
+            raise ValueError(f"{current}: already contains comparison columns")
+        rows = compare(a_rows, b_rows)
+        output = io.StringIO(newline="")
+        writer = csv.DictWriter(output, fieldnames=fields + extra_fields)
+        writer.writeheader()
+        writer.writerows(rows)
+        args.report.write_text(render_report(rows, current, previous), encoding="utf-8")
+        sys.stdout.write(output.getvalue())
+    except (OSError, ValueError, csv.Error) as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    print(f"Comparison report: {args.report}", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

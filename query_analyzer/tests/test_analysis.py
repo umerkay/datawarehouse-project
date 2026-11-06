@@ -123,7 +123,9 @@ class AnalysisTests(unittest.TestCase):
             summary = output.split('<summary>Advanced:')[0]
             self.assertIn('[sales]: 3 scan operators', summary)
             self.assertIn('2 hash operations', summary)
-            self.assertNotIn('Node 0', summary)
+            without_tree = re.sub(r'<details class="plan-tree">.*?</ul></details>', '', summary, flags=re.S)
+            self.assertNotIn('Node 0', without_tree)
+            self.assertIn('Execution plan tree and predicates', output)
             self.assertIn('<summary>Advanced: all 5 operators', output)
             self.assertIn('<summary>Query SQL</summary>', output)
             self.assertNotIn('consider an indexed view', summary)

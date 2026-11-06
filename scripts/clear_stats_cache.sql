@@ -1,0 +1,5 @@
+SET NOCOUNT ON;
+
+PRINT 'Clearing the database-scoped procedure cache';
+ALTER DATABASE SCOPED CONFIGURATION CLEAR PROCEDURE_CACHE;
+GO

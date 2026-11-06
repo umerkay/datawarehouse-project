@@ -9,11 +9,62 @@ import xml.etree.ElementTree as ET
 NS = {'p': 'http://schemas.microsoft.com/sqlserver/2004/07/showplan'}
 
 
+def operator_children(element):
+    result = []
+    for child in element:
+        if child.tag == '{' + NS['p'] + '}RelOp':
+            result.append(child)
+        else:
+            result.extend(operator_children(child))
+    return result
+
+
+def operator_details(element):
+    """Read only this operator's properties, never a descendant operator's."""
+    predicates, output = [], []
+    def visit(node, context=''):
+        for child in node:
+            tag = child.tag.rsplit('}', 1)[-1]
+            if tag == 'RelOp':
+                continue
+            role = tag if tag in ('SeekPredicates', 'Predicate', 'ProbeResidual', 'Residual', 'HashKeysBuild', 'HashKeysProbe', 'MergeColumns', 'OuterReferences') else context
+            if tag == 'ScalarOperator' and child.get('ScalarString') and role:
+                predicates.append(dict(role=role, expression=child.get('ScalarString')))
+            elif tag == 'ColumnReference' and role:
+                predicates.append(dict(role=role, expression='.'.join(child.get(k) for k in ('Table', 'Column') if child.get(k))))
+            visit(child, role)
+    visit(element)
+    for col in element.findall('p:OutputList/p:ColumnReference', NS):
+        output.append('.'.join(col.get(k) for k in ('Table', 'Column') if col.get(k)))
+    return predicates, output
+
+
 def number(element, key):
     value = float(element.get(key, '0'))
     if not math.isfinite(value) or value < 0:
         raise ValueError(f'Invalid nonnegative plan number: {key}')
     return value
+
+
+def strategy_properties(op):
+    """Preserve operator-local ordering/grouping evidence with resolved columns."""
+    def columns(path):
+        return [dict(col.attrib) for col in op.findall(path, NS)]
+    grouping = columns('p:StreamAggregate/p:GroupBy/p:ColumnReference')
+    if op.get('LogicalOp') == 'Aggregate':
+        grouping += columns('p:Hash/p:HashKeysBuild/p:ColumnReference')
+    ordering = []
+    for item in op.findall('p:Sort/p:OrderBy/p:OrderByColumn', NS):
+        for col in item.findall('p:ColumnReference', NS):
+            ordering.append(dict(col.attrib, ascending=item.get('Ascending', '1')))
+    measures = []
+    for path in ('p:Hash/p:DefinedValues', 'p:StreamAggregate/p:DefinedValues'):
+        values = op.find(path, NS)
+        if values is not None:
+            measures.extend(node.get('ScalarString') for node in values.findall('.//p:ScalarOperator', NS) if node.get('ScalarString'))
+    return dict(grouping=grouping, ordering=ordering, measures=measures,
+                estimated_rows_read=number(op, 'EstimatedRowsRead') if op.get('EstimatedRowsRead') is not None else None,
+                execution_mode=op.get('EstimatedExecutionMode'))
 
 
 def read_plan_documents(path, raw=None):
@@ -41,6 +92,7 @@ def analyze(path, documents=None):
             operators = []
             findings = []
             for op in plan.findall('.//p:RelOp', NS):
+                predicates, output = operator_details(op)
                 counters = op.findall('p:RunTimeInformation/p:RunTimeCountersPerThread', NS)
                 actual = sum(number(c, 'ActualRows') for c in counters) if counters else None
                 executions = sum(number(c, 'ActualExecutions') for c in counters) if counters else None
@@ -59,7 +111,9 @@ def analyze(path, documents=None):
                               logical=op.get('LogicalOp'), estimated_rows=estimate,
                               actual_rows=actual, actual_executions=executions,
                               cardinality_ratio=ratio, parallel_counters=active_workers > 1, objects=objects,
-                              local_cost=number(op, 'EstimateIO') + number(op, 'EstimateCPU'))
+                              local_cost=number(op, 'EstimateIO') + number(op, 'EstimateCPU'),
+                              children=[child.get('NodeId') for child in operator_children(op)],
+                              predicates=predicates, output_columns=output, **strategy_properties(op))
                 operators.append(record)
                 label = f"Node {record['node']} ({record['physical']})"
                 if 'Scan' in (record['physical'] or '') and estimate >= 10000:
@@ -89,6 +143,7 @@ def analyze(path, documents=None):
                                    actual=any(o['actual_rows'] is not None for o in operators),
                                    runtime=dict(timing.attrib) if timing is not None else None,
                                    operators=sorted(operators, key=lambda x: x['local_cost'], reverse=True),
+                                   roots=[op.get('NodeId') for op in operator_children(plan)],
                                    missing_indexes=missing, findings=findings))
     if not statements:
         raise ValueError('No statement with a QueryPlan found')

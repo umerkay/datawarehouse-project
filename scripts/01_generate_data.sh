@@ -80,17 +80,21 @@ else
     echo "Using $PARALLELISM parallel dsdgen processes."
 fi
 
-for size in "${SIZES[@]}"; do
-    echo ""
-    echo "    > Scale factor ${size}GB"
+generate_queries() {
+    local size=$1
+    local is_optimized=$2
+    local queryset_dir="/data/${size}GB/queryset"
+    local tpcds_base_dir="tpcds-kit"
+    if [ "$is_optimized" = true ]; then
+        queryset_dir="/data/${size}GB/queryset-optimized"
+        tpcds_base_dir="tpcds-optimized"
+    fi
 
-    # Generate query set for this scale factor
-    queryset_dir="/data/${size}GB/queryset"
     mkdir -p "$queryset_dir"
     rm -rf "$queryset_dir"/*.sql
     ./dsqgen \
-        -DIRECTORY ../query_templates \
-        -INPUT ../query_templates/templates.lst \
+        -DIRECTORY /$tpcds_base_dir/query_templates \
+        -INPUT /$tpcds_base_dir/query_templates/templates.lst \
         -QUIET Y \
         -QUALIFY Y \
         -SCALE "${size}" \
@@ -117,6 +121,15 @@ for size in "${SIZES[@]}"; do
         }
         ' "$queryset_dir/benchmark.sql"
     fi
+}
+
+for size in "${SIZES[@]}"; do
+    echo ""
+    echo "    > Scale factor ${size}GB"
+
+    # Generate querysets for this scale factor
+    generate_queries $size false # From original  query templates
+    generate_queries $size true  # From optimized query templates
     
     if [ "$ONLY_QUERIES" = true ]; then
         continue

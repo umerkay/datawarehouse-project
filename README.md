@@ -47,10 +47,15 @@ docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh --queryset --s
 
 Execute the loading script inside the SQL Server container. This script drops any existing database with the same name, creates a fresh schema, and bulk inserts the data.
 
-**Usage:** `bash /scripts/02_load_data.sh <SCALE_FOLDER> <DB_NAME>`
+**Usage:** `bash /scripts/02_load_data.sh <SCALE_FOLDER> <DB_NAME> [--full-stats] [--optimized]`
+
+`--full-stats` updates statistics for all TPC-DS workload tables with `FULLSCAN` after bulk loading and referential integrity setup, then clears the database-scoped procedure cache using separate maintenance scripts. It is intentionally opt-in and is not included in the script's default behavior.
 
 ```bash
-docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01
+docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01 --full-stats
+
+# Load from the optimized schema setup scripts with
+docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01_optimized --optimized --full-stats
 
 ```
 
@@ -60,7 +65,7 @@ For an optimized comparison, load the same scale factor into a separate database
 
 ```bash
 docker exec -it tpcds_sqlserver \
-  bash /scripts/02_load_data.sh 1GB tpcds_01_indexed
+  bash /scripts/02_load_data.sh 1GB tpcds_01_indexed --full-stats
 
 docker exec -it tpcds_sqlserver \
   bash /scripts/05_apply_indexing.sh tpcds_01_indexed
@@ -86,10 +91,13 @@ Execute the benchmark script against the populated database. This script runs di
 
 **Protocol:** The script requires and reads only `/data/<SCALE_FOLDER>/queryset/benchmark.sql`. By default it runs this benchmark **6 times**. The first run is discarded to allow for buffer pool warm-up, and the remaining 5 runs are averaged. Execution times are tracked with millisecond precision. For short tuning experiments, override `WARMUP_RUNS` and `MEASURED_RUNS`; defaults remain 1 and 5.
 
-**Usage:** `bash /scripts/03_run_benchmark.sh <SCALE_FOLDER> <DB_NAME>`
+**Usage:** `bash /scripts/03_run_benchmark.sh <SCALE_FOLDER> <DB_NAME> [--full-stats-after-warmup]`
+
+Use `--full-stats-after-warmup` to run [`scripts/full_stats.sql`](scripts/full_stats.sql) after the discarded warm-up and before the five measured runs. It updates statistics but does not clear the procedure cache. The statistics-maintenance time is not included in the measured query timings. Without the flag, benchmark behavior is unchanged.
 
 ```bash
-docker exec -it tpcds_sqlserver bash /scripts/03_run_benchmark.sh 1GB tpcds_01
+docker exec -it tpcds_sqlserver \
+  bash /scripts/03_run_benchmark.sh 1GB tpcds_01 --full-stats-after-warmup
 
 # One-pass engineering experiment (not the final reporting protocol)
 docker exec -e WARMUP_RUNS=0 -e MEASURED_RUNS=1 \
@@ -99,7 +107,7 @@ docker exec -e WARMUP_RUNS=0 -e MEASURED_RUNS=1 \
 
 ### 6. Development: Profile Individual Queries
 
-Use the separate profiling script when you want diagnostic timings for each query rather than the normal aggregate benchmark. It reads one SQL filename per row from `data/<SCALE_FOLDER>/queryset/queries.lst` and executes those pre-split files directly, ignoring unlisted SQL files. It runs each selected query once for warm-up and five measured times, then ranks the queries by average duration. It logs each query before and after execution; on failure, it reports the query, run, elapsed time, and `sqlcmd` exit code.
+Use the separate profiling script when you want diagnostic timings for each query rather than the normal aggregate benchmark. It reads one SQL filename per row from `data/<SCALE_FOLDER>/queryset/queries.lst` and executes those pre-split files directly, ignoring unlisted SQL files. By default, it runs each selected query once for warm-up and five measured times, then ranks the queries by average duration. Set the environment variables `WARMUP_RUNS` (integer >= 0) and `MEASURED_RUNS` (integer >= 1) to override these counts. Warm-up timings are discarded, and measured runs in `timings.csv` are numbered starting at 1. It logs each query before and after execution; on failure, it reports the query, run, elapsed time, and `sqlcmd` exit code. Add `--full-stats-after-warmup` to update statistics between the warm-up pass and measured passes without clearing the procedure cache.
 
 If `queries.lst` is missing, the script prints a warning and exits without profiling. Generate the split queries and list with:
 
@@ -107,15 +115,29 @@ If `queries.lst` is missing, the script prints a warning and exits without profi
 docker exec -it tpcds_workspace bash /scripts/01_generate_data.sh --queryset --split-queries --no-recompile
 ```
 
-**Usage:** `bash /scripts/04_profile_queries.sh <SCALE_FOLDER> <DB_NAME> [--from INDEX] [--to INDEX] [--list INDEX_1 INDEX_2 ...]`
+**Usage:** `bash /scripts/04_profile_queries.sh <SCALE_FOLDER> <DB_NAME> [--from INDEX] [--to INDEX] [--list INDEX_1 INDEX_2 ...] [--optimized] [--full-stats-after-warmup] [--compare-to PATH] [--out PATH]`
 
 Query indices start at 1, and both range endpoints are inclusive. `--list` overrides the range. If a query fails, profiling stops immediately: its failed execution is not added to `timings.csv`, and no final summary or HTML report is generated for that incomplete run.
 
 ```bash
 docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01
 
+# Profile the optimized version of the queries
+docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01 --optimized
+
 # Profile only the first and third entries in queries.lst
 docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01 --list 1 3
+
+# Profile those queries with two warm-up runs and ten measured runs
+docker exec -it -e WARMUP_RUNS=2 -e MEASURED_RUNS=10 tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01 --list 1 3
+
+# Also compare the new run against a previous run (path inside the container)
+docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01 \
+  --compare-to /benchmark_results/<prev_run_dir>
+
+# Write directly to a named directory instead of a timestamped one
+docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01 \
+  --out /benchmark_results/my_profile
 
 ```
 
@@ -125,13 +147,84 @@ docker exec -it tpcds_sqlserver bash /scripts/04_profile_queries.sh 1GB tpcds_01
 * The channel-comparison query generated from `query78.tpl` pushes its final year into each channel CTE and uses a hash-join hint. This prevents a severe nested-loop cardinality regression observed at 2GB (about 6.56 million logical reads versus about 9 thousand at 1GB before the fix).
 * The AM/PM ratio generated from `query90.tpl` uses `NULLIF` for the denominator. Non-official small scale factors can legitimately produce zero matching PM rows; the original expression aborted the whole suite with divide-by-zero.
 
-Each profiling run creates a timestamped directory under `benchmark_results/` containing:
+By default, each profiling run creates a timestamped directory under
+`benchmark_results/` (or `$RESULTS_DIR`). Use `--out PATH` to write directly to
+that directory instead, without appending a timestamp or database name.
+Relative paths are resolved from the script's working directory; inside Docker,
+use a container path such as `/benchmark_results/my_profile`. Missing parent
+directories are created. Existing output files are overwritten, so use a separate
+directory from the `--compare-to` baseline.
+
+The output directory contains:
 
 * `timings.csv`: every measured execution time for each query.
 * `summary.csv`: queries ranked from slowest to fastest by their average execution time.
 * `report.html`: a self-contained horizontal bar chart of the ranked averages. Open this file in a browser to identify the slowest queries; the top 10 are highlighted in red.
 
+With `--compare-to`, the previous run directory (or its `summary.csv`) is used as
+the baseline, and the new run also contains `cmp_summary.csv` and `cmp_report.html`.
+Comparison requires Python 3 in the environment running the profiling script;
+without this flag, profiling has no Python dependency.
+
+To compare existing runs directly on the host (Python 3, standard library only):
+
+```bash
+./scripts/cmp_query_profiles benchmark_results/NEW/summary.csv \
+  benchmark_results/BASELINE/summary.csv --report cmp_report.html > cmp_summary.csv
+```
+
+The [comparison script](scripts/cmp_query_profiles) accepts two CSV files or run
+directories. It prints CSV to stdout and writes `report.html` in the current
+directory unless `--report PATH` is given. A is the current run, B the baseline:
+rows are joined by `query_id` and ordered by A's rank. All original A columns are
+preserved, followed by `_delta` and `_delta_pct` columns for `average_ms`, `min_ms`,
+`max_ms`, `total_ms`, and `percent_of_total`. Deltas are **A - B**, with percentages
+calculated as **100 * (A - B) / B**. For example, 80 ms versus 100 ms is -20 ms
+(-20%), shown in smaller green text; increases are red and unchanged values gray.
+Share-of-total deltas are percentage points, not a measure of query speedup.
+
+Queries missing from B remain in the output with empty delta fields (`N/A` in
+HTML); queries only in B are omitted. A zero baseline yields an undefined
+percentage (empty CSV / `N/A`), except zero versus zero is 0%. Compare averages,
+not totals, when the measured-run counts differ.
+
 Query names are the listed SQL filenames without the `.sql` extension, for example `query_003` for `data/<SCALE_FOLDER>/queryset/query_003.sql`. Individual timings include the small, approximately constant `sqlcmd` process startup overhead. This profiling script is intended for optimization work; continue to use `03_run_benchmark.sh` for comparable full-suite benchmark results.
+
+### Validate optimized query results
+
+Run [check_query_equivalence](scripts/check_query_equivalence) on the host:
+
+```bash
+./scripts/check_query_equivalence 5GB tpcds_05 tpcds_05_optimized 71 6 23 24
+```
+
+It uses `docker exec` to run inside `tpcds_sqlserver` (override with
+`--container NAME`). IDs such as `71`, `query071`, and `query_071` all select
+`query_071.sql`. For each ID, it executes `/data/<scale>/queryset/` against the
+first database and `/data/<scale>/queryset-optimized/` against the second.
+Two queries run concurrently, one original/optimized pair at a time.
+
+The container needs Python 3, `pyodbc`, ODBC Driver 18 for SQL Server, and its
+existing `MSSQL_SA_PASSWORD` environment variable. If `pyodbc` is missing, install
+it once (repeat after recreating the SQL Server container):
+
+```bash
+docker exec -u 0 tpcds_sqlserver sh -c \
+  'apt-get update && apt-get install -y python3-pyodbc'
+```
+
+The checker streams typed values without `sqlcmd` text formatting or truncation.
+It compares every result set, column count, row count, and cell value, stopping
+at the first mismatch per query and continuing to the next pair. Column aliases
+and SQL type metadata are not compared. Numeric values use exact equality (no
+tolerance); `NULL` differs from an empty string. Row order is significant:
+unordered queries or non-unique `ORDER BY` ties can fail despite containing the
+same rows. Ensure deterministic ordering and unchanged data in both databases.
+Only run trusted, read-only query files: the checker executes SQL as-is, as `sa`.
+
+The default query timeout is 300 seconds; override with `--timeout SECONDS`.
+Exit status is **0** when all pairs match, **1** for differing results, and **2**
+for execution/setup errors (Docker itself may return another nonzero status).
 
 ### 7. Development: Visualize Join Relationships Without Running Queries
 
