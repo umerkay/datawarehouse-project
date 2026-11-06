@@ -36,22 +36,20 @@
  define _LIMIT=100;
  
  [_LIMITA] select [_LIMITB] 
-    sum(ss_net_profit) as total_sum
+    sum(sum_net_profit) as total_sum
    ,s_state
    ,s_county
    ,grouping(s_state)+grouping(s_county) as lochierarchy
    ,rank() over (
  	partition by grouping(s_state)+grouping(s_county),
  	case when grouping(s_county) = 0 then s_state end 
- 	order by sum(ss_net_profit) desc) as rank_within_parent
+ 	order by sum(sum_net_profit) desc) as rank_within_parent
  from
-    store_sales
-   ,date_dim       d1
-   ,store
+    MV_Store_Sales_Daily_Item mv WITH (NOEXPAND)
+    join date_dim d1 on mv.ss_sold_date_sk = d1.d_date_sk
+    join store on mv.ss_store_sk = s_store_sk
  where
     d1.d_month_seq between [DMS] and [DMS]+11
- and d1.d_date_sk = ss_sold_date_sk
- and s_store_sk  = ss_store_sk
  and s_state in
              ( select s_state
                from  (select s_state as s_state,
