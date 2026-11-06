@@ -27,7 +27,8 @@ assumed to be usage counts in every generated queryset.
 ## Run
 
 Requires Python 3.10+, Docker, a running `tpcds_sqlserver` container with its
-existing `MSSQL_SA_PASSWORD`, and split SQL files in `data/1GB/queryset/`.
+existing `MSSQL_SA_PASSWORD`, and split SQL files in `data/1GB/queryset/`,
+`data/2GB/queryset/` and `data/5GB/queryset/`.
 The runner uses only Python's standard library; plotting packages are needed only
 for the notebook. Run commands from the repository root on Windows or Linux.
 
@@ -39,16 +40,26 @@ database. It does not create or convert CCIs, and never executes the unrelated
 `scripts/indexing_strategy.sql` materialized-view strategy.
 
 ```powershell
-# Validate arguments/query files; no Docker or SQL connection and no output files.
-python experiments/dimension_indexes/run.py --database YOUR_CCI_DB --scale 1GB --dry-run
+# Validate all three querysets; no Docker or SQL connection and no output files.
+python experiments/dimension_indexes/run.py --databases DB_1GB DB_2GB DB_5GB --dry-run
 
-# Run both scenarios. Replace the database name with your existing CCI source.
-python experiments/dimension_indexes/run.py --database YOUR_CCI_DB --scale 1GB
+# Default full experiment: both scenarios at 1GB, then 2GB, then 5GB.
+# Replace the three names with your existing CCI databases, in that order.
+python experiments/dimension_indexes/run.py --databases DB_1GB DB_2GB DB_5GB
 ```
 
-For other sizes, repeat with the relevant `--database` and `--scale 2GB` or
-`--scale 5GB`. **All scales use the 1GB SQL by default**, so only the data changes.
-Use `--query-scale` or `--queries PATH` to choose a different queryset explicitly.
+**Each scale uses its own SQL by default:** 1GB reads `data/1GB/queryset`,
+2GB reads `data/2GB/queryset`, and 5GB reads `data/5GB/queryset`. All three
+querysets are validated and snapshotted in memory before SQL work starts. Runs
+are sequential and stop on the first failure. Results are saved separately for
+each scale, including the actual query path, scale and SHA-256 hashes.
+
+For an explicit single-scale run, use `--database YOUR_CCI_DB --scale 2GB`
+(1GB, 5GB and 10GB are also supported). Only in this single-scale mode can
+`--query-scale` or `--queries PATH` select a different queryset explicitly.
+The full three-scale mode rejects these overrides to prevent accidental reuse
+of one scale's SQL for all sizes. SQL can differ between scales, so compare
+index effects against the baseline at the same scale.
 `--container`, `--timeout` and `--passes` override defaults. Keep five measured
 passes for the report. Run one experiment at a time, with no concurrent loads.
 
@@ -63,7 +74,8 @@ cause. Check Docker/SQL Server health first, particularly after a tempdb I/O err
 ## Measurements
 
 - Two scenarios, one excluded warm-up and five measured full-workload passes:
-  **1,030 measurements with the usual 103 queries per scale**.
+  **1,030 measurements with the usual 103 queries per scale**, or **3,090 across
+  the default 1GB/2GB/5GB experiment**.
 - Scenario order is shuffled reproducibly (`--seed 20261106` by default).
   Repeat with another seed to check sensitivity to execution order; one shuffled
   run alone does not eliminate time/order effects.
@@ -111,5 +123,4 @@ Tables can also be regenerated without Jupyter:
 
 ```powershell
 python experiments/dimension_indexes/analyze.py benchmark_results/dimension_indexes/RUN_FOLDER
-python -m unittest discover -s experiments/dimension_indexes/tests -v
 ```

@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 SCENARIOS = ('baseline', 'all_dimensions')
+DEFAULT_SCALES = ('1GB', '2GB', '5GB')
 FACTS = ('store_sales', 'catalog_sales', 'web_sales', 'store_returns',
          'catalog_returns', 'web_returns', 'inventory')
 INDEXES = {
@@ -139,18 +140,23 @@ def plan(sql, database, query, target):
     return sorted(objects)
 
 
-def run(args):
-    queries_dir = (args.queries or ROOT / 'data' / args.query_scale / 'queryset').resolve()
+def load_queries(args):
+    queries_dir = (args.queries or ROOT / 'data' / (args.query_scale or args.scale) / 'queryset').resolve()
     files = (queries_dir / 'queries.lst').read_text(encoding='utf-8-sig').splitlines()
     if not files or len(files) != len(set(files)):
         raise ValueError('queries.lst must contain unique SQL filenames')
     if any(not re.fullmatch(r'[A-Za-z0-9_-]+\.sql', f) for f in files):
         raise ValueError('Invalid filename in queries.lst')
-    queries = {f: (queries_dir / f).read_bytes() for f in files}
+    return queries_dir, {f: (queries_dir / f).read_bytes() for f in files}
+
+
+def run(args, inputs=None):
+    queries_dir, queries = inputs if inputs is not None else load_queries(args)
     # Snapshot bytes, so edits during measurement cannot change an input query.
     order = list(SCENARIOS)
     random.Random(args.seed).shuffle(order)
-    print(f'Source={args.database}; scale={args.scale}; queries={len(files)}; order={order}', flush=True)
+    print(f'Source={args.database}; scale={args.scale}; query_scale={args.query_scale or args.scale}; '
+          f'queries={len(queries)}; queryset={queries_dir}; order={order}', flush=True)
     if args.dry_run:
         print('Dry run: SQL inputs checked; no Docker/SQL connection or files created.')
         return
@@ -169,7 +175,8 @@ def run(args):
             (snapshot / name).write_bytes(data)
         for name in ('run.py', 'indexes.sql', 'analyze.py'):
             (output / name).write_bytes((HERE / name).read_bytes())
-        manifest = dict(protocol='dimension_indexes_v2', scale=args.scale, query_scale=args.query_scale,
+        manifest = dict(protocol='dimension_indexes_v2', scale=args.scale,
+                        query_scale=args.query_scale or args.scale, query_directory=str(queries_dir),
                         source_database=args.database, experiment_database=database,
                         queries={n: digest(d) for n, d in queries.items()}, scenarios=list(SCENARIOS),
                         scenario_order=order, seed=args.seed, passes=args.passes,
@@ -255,23 +262,52 @@ GROUP BY t.name ORDER BY t.name;"""))
         raise
 
 
-def main():
+def parse_runs(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--database', required=True, help='Existing clean seven-CCI source; never modified')
-    parser.add_argument('--scale', choices=['1GB', '2GB', '5GB', '10GB'], default='1GB')
-    parser.add_argument('--query-scale', choices=['1GB', '2GB', '5GB', '10GB'], default='1GB')
-    parser.add_argument('--queries', type=Path, help='Override the host queryset directory')
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument('--databases', nargs=3, metavar=('DB_1GB', 'DB_2GB', 'DB_5GB'),
+                        help='Default full experiment: 1GB, 2GB and 5GB in this order, each with its own queries')
+    source.add_argument('--database', help='Single clean CCI source; requires --scale')
+    parser.add_argument('--scale', choices=['1GB', '2GB', '5GB', '10GB'], help='Single-scale mode only')
+    parser.add_argument('--query-scale', choices=['1GB', '2GB', '5GB', '10GB'],
+                        help='Single-scale override; default is the measured scale')
+    parser.add_argument('--queries', type=Path, help='Single-scale override of the host queryset directory')
     parser.add_argument('--container', default='tpcds_sqlserver')
     parser.add_argument('--passes', type=int, default=5)
     parser.add_argument('--seed', type=int, default=20261106, help='Reproducible shuffle of scenario order')
     parser.add_argument('--timeout', type=int, default=3600)
     parser.add_argument('--dry-run', action='store_true')
-    args = parser.parse_args()
-    if not re.fullmatch(r'[A-Za-z0-9_]{1,60}', args.database):
+    args = parser.parse_args(argv)
+    databases = args.databases or [args.database]
+    if any(not re.fullmatch(r'[A-Za-z0-9_]{1,60}', db) for db in databases):
         parser.error('Database name must contain 1-60 letters, digits or underscores')
     if args.passes < 2 or args.timeout < 1:
         parser.error('Use at least two measured passes and a positive timeout')
-    run(args)
+    if args.databases:
+        if args.scale or args.query_scale or args.queries:
+            parser.error('--databases runs 1GB/2GB/5GB with their own queries; overrides require --database --scale')
+        if len(set(databases)) != 3:
+            parser.error('Use a different source database for each scale')
+        selections = zip(DEFAULT_SCALES, databases)
+    else:
+        if not args.scale:
+            parser.error('--database requires --scale; use --databases DB_1GB DB_2GB DB_5GB for the full experiment')
+        selections = [(args.scale, args.database)]
+    runs = []
+    for scale, database in selections:
+        selected = argparse.Namespace(**vars(args))
+        selected.database, selected.scale = database, scale
+        selected.query_scale = args.query_scale or scale
+        runs.append(selected)
+    return runs
+
+
+def main():
+    # Validate/snapshot every selected queryset before any database clone or SQL work.
+    runs = parse_runs()
+    inputs = [load_queries(args) for args in runs]
+    for args, selected in zip(runs, inputs):
+        run(args, selected)
 
 
 if __name__ == '__main__':
