@@ -170,6 +170,42 @@ not totals, when the measured-run counts differ.
 
 Query names are the listed SQL filenames without the `.sql` extension, for example `query_003` for `data/<SCALE_FOLDER>/queryset/query_003.sql`. Individual timings include the small, approximately constant `sqlcmd` process startup overhead. This profiling script is intended for optimization work; continue to use `03_run_benchmark.sh` for comparable full-suite benchmark results.
 
+### Validate optimized query results
+
+Run [check_query_equivalence](scripts/check_query_equivalence) on the host:
+
+```bash
+./scripts/check_query_equivalence 5GB tpcds_05 tpcds_05_optimized 71 6 23 24
+```
+
+It uses `docker exec` to run inside `tpcds_sqlserver` (override with
+`--container NAME`). IDs such as `71`, `query071`, and `query_071` all select
+`query_071.sql`. For each ID, it executes `/data/<scale>/queryset/` against the
+first database and `/data/<scale>/queryset-optimized/` against the second.
+Two queries run concurrently, one original/optimized pair at a time.
+
+The container needs Python 3, `pyodbc`, ODBC Driver 18 for SQL Server, and its
+existing `MSSQL_SA_PASSWORD` environment variable. If `pyodbc` is missing, install
+it once (repeat after recreating the SQL Server container):
+
+```bash
+docker exec -u 0 tpcds_sqlserver sh -c \
+  'apt-get update && apt-get install -y python3-pyodbc'
+```
+
+The checker streams typed values without `sqlcmd` text formatting or truncation.
+It compares every result set, column count, row count, and cell value, stopping
+at the first mismatch per query and continuing to the next pair. Column aliases
+and SQL type metadata are not compared. Numeric values use exact equality (no
+tolerance); `NULL` differs from an empty string. Row order is significant:
+unordered queries or non-unique `ORDER BY` ties can fail despite containing the
+same rows. Ensure deterministic ordering and unchanged data in both databases.
+Only run trusted, read-only query files: the checker executes SQL as-is, as `sa`.
+
+The default query timeout is 300 seconds; override with `--timeout SECONDS`.
+Exit status is **0** when all pairs match, **1** for differing results, and **2**
+for execution/setup errors (Docker itself may return another nonzero status).
+
 ### 7. Development: Visualize Join Relationships Without Running Queries
 
 The separate [static join-graph tool](tools/join_graph/README.md) analyzes only the SQL files listed in `data/1GB/queryset/queries.lst`, using the bundled schema to resolve column names. It does not connect to SQL Server or change indexes.

@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""Compare original and optimized SQL results in the SQL Server container."""
+
+from __future__ import annotations
+
+import argparse
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+
+def query_id(value: str) -> str:
+    match = re.fullmatch(r"(?:query_?)?0*([1-9][0-9]*)", value)
+    if match is None:
+        raise argparse.ArgumentTypeError(f"invalid query ID: {value!r}")
+    return f"query_{int(match[1]):03d}"
+
+
+def odbc_value(value: str) -> str:
+    return "{" + value.replace("}", "}}") + "}"
+
+
+def next_result(cursor, advance: bool = False) -> bool:
+    if advance and not cursor.nextset():
+        return False
+    while cursor.description is None:
+        if not cursor.nextset():
+            return False
+    return True
+
+
+def compare_results(left, right) -> tuple[bool, str]:
+    result_count = 0
+    row_count = 0
+    has_left, has_right = next_result(left), next_result(right)
+    while True:
+        if has_left != has_right:
+            return False, f"result set {result_count + 1}: different number of result sets"
+        if not has_left:
+            if result_count == 0:
+                return False, "neither query returned a result set"
+            return True, f"{result_count} result set(s), {row_count} row(s)"
+        result_count += 1
+        if len(left.description) != len(right.description):
+            return False, f"result set {result_count}: different column counts"
+        position = 0
+        while True:
+            a, b = left.fetchone(), right.fetchone()
+            if a is None and b is None:
+                break
+            position += 1
+            if a is None or b is None:
+                return False, f"result set {result_count}, row {position}: different row counts"
+            for column, (value_a, value_b) in enumerate(zip(a, b), 1):
+                if value_a != value_b:
+                    return False, (
+                        f"result set {result_count}, row {position}, column {column} "
+                        f"({left.description[column - 1][0]}): "
+                        f"original={value_a!r}, optimized={value_b!r}"
+                    )
+            row_count += 1
+        has_left, has_right = next_result(left, advance=True), next_result(right, advance=True)
+
+
+def check_pair(pyodbc, databases, files, password: str, timeout: int) -> tuple[bool, str]:
+    # Each worker owns a separate connection; keep both open while streaming rows.
+    with ExitStack() as stack:
+        cursors = []
+        for database in databases:
+            connection = pyodbc.connect(
+                "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;"
+                f"DATABASE={odbc_value(database)};UID=sa;PWD={odbc_value(password)};"
+                "Encrypt=yes;TrustServerCertificate=yes;",
+                autocommit=True, timeout=15,
+            )
+            stack.callback(connection.close)
+            connection.timeout = timeout
+            cursor = connection.cursor()
+            stack.callback(cursor.close)
+            cursors.append(cursor)
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            pending = [
+                workers.submit(cursor.execute, "SET NOCOUNT ON;\n" + sql)
+                for cursor, sql in zip(cursors, files)
+            ]
+            for database, future in zip(databases, pending):
+                try:
+                    future.result()
+                except pyodbc.Error as error:
+                    for cursor in cursors:
+                        cursor.cancel()
+                    raise RuntimeError(f"database {database!r}: {error}") from error
+        return compare_results(*cursors)
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("scale", help="scale folder, e.g. 5GB")
+    parser.add_argument("original_database")
+    parser.add_argument("optimized_database")
+    parser.add_argument("queries", nargs="+", type=query_id, help="IDs: 71, query071, or query_071")
+    parser.add_argument("--container", default="tpcds_sqlserver")
+    parser.add_argument("--timeout", type=int, default=300, help="per-query timeout in seconds (default: 300)")
+    parser.add_argument("--inside-container", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args(argv)
+    if not re.fullmatch(r"[1-9][0-9]*GB", args.scale):
+        parser.error("scale must be a folder such as 1GB or 5GB")
+    if args.timeout < 1:
+        parser.error("--timeout must be positive")
+    if not args.inside_container:
+        try:
+            return subprocess.run([
+                "docker", "exec", args.container, "python3",
+                "/scripts/check_query_equivalence", "--inside-container",
+                "--timeout", str(args.timeout), args.scale,
+                args.original_database, args.optimized_database, *args.queries,
+            ], check=False).returncode
+        except OSError as error:
+            print(f"Error: cannot run Docker: {error}", file=sys.stderr)
+            return 2
+    try:
+        import pyodbc
+    except ImportError:
+        print(
+            "Error: pyodbc is required inside the SQL Server container. "
+            "Install python3-pyodbc there (see README).", file=sys.stderr,
+        )
+        return 2
+    password = os.environ.get("MSSQL_SA_PASSWORD")
+    if not password:
+        print("Error: MSSQL_SA_PASSWORD is not set inside the container.", file=sys.stderr)
+        return 2
+    jobs = []
+    try:
+        for query in args.queries:
+            paths = [
+                Path("/data") / args.scale / directory / f"{query}.sql"
+                for directory in ("queryset", "queryset-optimized")
+            ]
+            jobs.append((query, [path.read_text(encoding="utf-8-sig") for path in paths]))
+    except OSError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 2
+    failures = 0
+    errors = 0
+    for query, files in jobs:
+        print(f"Checking {query}: {args.original_database} vs {args.optimized_database}...", flush=True)
+        try:
+            equal, detail = check_pair(
+                pyodbc, (args.original_database, args.optimized_database),
+                files, password, args.timeout,
+            )
+        except (pyodbc.Error, RuntimeError) as error:
+            errors += 1
+            print(f"ERROR {query}: {error}", file=sys.stderr, flush=True)
+            continue
+        failures += not equal
+        print(f"{'PASS' if equal else 'FAIL'} {query}: {detail}", flush=True)
+    print(f"Checked {len(jobs)} pair(s): {len(jobs) - failures - errors} passed, "
+          f"{failures} different, {errors} errors.", flush=True)
+    return 2 if errors else 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
