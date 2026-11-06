@@ -128,15 +128,24 @@ def plan(sql, database, query, target):
     raw = sql.execute(database, 'SET SHOWPLAN_XML ON;\nGO\n' + query +
                       '\nGO\nSET SHOWPLAN_XML OFF;\nGO\n')
     target.write_bytes(raw)
+    text = raw.decode('utf-16' if raw.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig')
+    # sqlcmd -w 65535 inserts hard wraps even inside XML names and entities.
+    # Remove only those transport breaks; retain genuine XML newlines.
+    text = ''.join(line.rstrip('\r\n') if len(line.rstrip('\r\n')) == 65535 else line
+                   for line in text.splitlines(keepends=True))
+    documents = re.findall(r'<(?:[\w.-]+:)?ShowPlanXML\b.*?</(?:[\w.-]+:)?ShowPlanXML>', text, re.S)
+    if not documents:
+        raise ValueError('No complete estimated plan returned; inspect ' + str(target))
     objects = set()
-    for xml in re.findall(r'<ShowPlanXML\b.*?</ShowPlanXML>', raw.decode('utf-8'), re.S):
-        root = ET.fromstring(xml)
+    for xml in documents:
+        try:
+            root = ET.fromstring(xml)
+        except ET.ParseError as error:
+            raise ValueError(f'Invalid estimated plan: {error}; raw capture retained at {target}') from error
         for obj in root.iter('{http://schemas.microsoft.com/sqlserver/2004/07/showplan}Object'):
             name = obj.get('Index', '').strip('[]')
             if name.startswith('DIMEXP_'):
                 objects.add((obj.get('Table', '').strip('[]'), name))
-    if b'<ShowPlanXML' not in raw:
-        raise ValueError('No estimated plan returned; inspect ' + str(target))
     return sorted(objects)
 
 
