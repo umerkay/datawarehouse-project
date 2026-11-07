@@ -2,9 +2,25 @@
 set -euo pipefail
 
 DB_NAME=${1:-}
+shift 1
+
 SQLCMD_BIN=${SQLCMD_BIN:-/opt/mssql-tools18/bin/sqlcmd}
 SA_PASS=${MSSQL_SA_PASSWORD:-}
 INDEXING_FILE=${INDEXING_FILE:-/scripts/indexing_strategy.sql}
+
+REFRESH_STATS=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --refresh-stats)
+            REFRESH_STATS=true
+            ;;
+        *)
+            echo "Unknown parameter: $1" >&2
+            exit 1
+            ;;
+    esac
+    shift
+done
 
 if [ -z "$DB_NAME" ]; then
     echo "Error: Usage: $0 <DB_NAME>" >&2
@@ -35,3 +51,11 @@ echo "Applying indexing strategy to database: $DB_NAME"
 "$SQLCMD_BIN" -b -S localhost -U sa -P "$SA_PASS" -C \
     -d "$DB_NAME" -i "$INDEXING_FILE"
 echo "Indexing strategy applied to $DB_NAME."
+
+if [ "$REFRESH_STATS" = true ]; then
+    "$SQLCMD_BIN" -b -S localhost -U sa -P "$SA_PASS" -C \
+        -d "$DB_NAME" -i /scripts/full_stats.sql
+    "$SQLCMD_BIN" -b -S localhost -U sa -P "$SA_PASS" -C \
+        -d "$DB_NAME" -i /scripts/clear_stats_cache.sql
+    echo "Statistics update completed."
+fi
