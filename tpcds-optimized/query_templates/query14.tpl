@@ -70,23 +70,28 @@ with  cross_items as
       and i_class_id = class_id
       and i_category_id = category_id
 ),
-  avg_sales as (
-    select SUM(total_amt) / SUM(total_cnt) average_sales
-    from (
-      select sum(ss_quantity*ss_list_price) total_amt, count(ss_quantity*ss_list_price) total_cnt 
-      from store_sales join date_dim on ss_sold_date_sk = d_date_sk 
-      where d_year between [YEAR] and [YEAR] + 2
-      union all 
-      select sum(cs_quantity*cs_list_price) total_amt, count(cs_quantity*cs_list_price) total_cnt 
-      from catalog_sales join date_dim on cs_sold_date_sk = d_date_sk 
-      where d_year between [YEAR] and [YEAR] + 2
-      union all
-      select sum(sum_qty_list_price) total_amt, sum(cnt) total_cnt
-      from MV_Web_Sales_Daily_Item WITH (NOEXPAND)
-      join date_dim on ws_sold_date_sk = d_date_sk
-      where d_year between [YEAR] and [YEAR] + 2
-    ) x
-  )
+  avg_sales as 
+  (select avg(quantity*list_price) average_sales
+  from (select ss_quantity quantity
+             ,ss_list_price list_price
+       from store_sales
+           ,date_dim
+       where ss_sold_date_sk = d_date_sk
+         and d_year between [YEAR] and [YEAR] + 2
+       union all 
+       select cs_quantity quantity 
+             ,cs_list_price list_price
+       from catalog_sales
+           ,date_dim
+       where cs_sold_date_sk = d_date_sk
+         and d_year between [YEAR] and [YEAR] + 2 
+       union all
+       select ws_quantity quantity
+             ,ws_list_price list_price
+       from web_sales
+           ,date_dim
+       where ws_sold_date_sk = d_date_sk
+         and d_year between [YEAR] and [YEAR] + 2) x)
  [_LIMITA] select [_LIMITB] channel, i_brand_id,i_class_id,i_category_id,sum(sales), sum(number_sales)
  from(
        select 'store' channel, i_brand_id,i_class_id
@@ -163,23 +168,28 @@ with  cross_items as
       and i_class_id = class_id
       and i_category_id = category_id
 ),
-avg_sales as (
-  select SUM(total_amt) / SUM(total_cnt) average_sales
-  from (
-    select sum(ss_quantity*ss_list_price) total_amt, count(ss_quantity*ss_list_price) total_cnt 
-    from store_sales join date_dim on ss_sold_date_sk = d_date_sk 
-    where d_year between [YEAR] and [YEAR] + 2
-    union all 
-    select sum(cs_quantity*cs_list_price) total_amt, count(cs_quantity*cs_list_price) total_cnt 
-    from catalog_sales join date_dim on cs_sold_date_sk = d_date_sk 
-    where d_year between [YEAR] and [YEAR] + 2
-    union all
-    select sum(sum_qty_list_price) total_amt, sum(cnt) total_cnt
-    from MV_Web_Sales_Daily_Item WITH (NOEXPAND)
-    join date_dim on ws_sold_date_sk = d_date_sk
-    where d_year between [YEAR] and [YEAR] + 2
-  ) x
-)
+avg_sales as 
+(select avg(quantity*list_price) average_sales
+  from (select ss_quantity quantity
+             ,ss_list_price list_price
+       from store_sales
+           ,date_dim
+       where ss_sold_date_sk = d_date_sk
+         and d_year between [YEAR] and [YEAR] + 2
+       union all
+       select cs_quantity quantity
+             ,cs_list_price list_price
+       from catalog_sales
+           ,date_dim
+       where cs_sold_date_sk = d_date_sk
+         and d_year between [YEAR] and [YEAR] + 2
+       union all
+       select ws_quantity quantity
+             ,ws_list_price list_price
+       from web_sales
+           ,date_dim
+       where ws_sold_date_sk = d_date_sk
+         and d_year between [YEAR] and [YEAR] + 2) x)
  [_LIMITA] select [_LIMITB] this_year.channel ty_channel
                            ,this_year.i_brand_id ty_brand
                            ,this_year.i_class_id ty_class
@@ -194,35 +204,31 @@ avg_sales as (
                            ,last_year.number_sales ly_number_sales 
  from
  (select 'store' channel, i_brand_id,i_class_id,i_category_id
-        ,sum(ss_quantity*ss_list_price) sales, count(*) number_sales
- from store_sales 
-     ,item
-     ,date_dim
+        ,sum(sum_qty_list_price) sales, sum(cnt) number_sales
+ from MV_Store_Sales_Daily_Item WITH (NOEXPAND) 
+    join item on ss_item_sk = i_item_sk
+    join date_dim on ss_sold_date_sk = d_date_sk
  where ss_item_sk in (select ss_item_sk from cross_items)
-   and ss_item_sk = i_item_sk
-   and ss_sold_date_sk = d_date_sk
    and d_week_seq = (select d_week_seq
                      from date_dim
                      where d_year = [YEAR] + 1
                        and d_moy = 12
                        and d_dom = [DAY])
  group by i_brand_id,i_class_id,i_category_id
- having sum(ss_quantity*ss_list_price) > (select average_sales from avg_sales)) this_year,
+ having sum(sum_qty_list_price) > (select average_sales from avg_sales)) this_year,
  (select 'store' channel, i_brand_id,i_class_id
-        ,i_category_id, sum(ss_quantity*ss_list_price) sales, count(*) number_sales
- from store_sales
-     ,item
-     ,date_dim
+        ,i_category_id, sum(sum_qty_list_price) sales, sum(cnt) number_sales
+ from MV_Store_Sales_Daily_Item WITH (NOEXPAND) 
+    join item on ss_item_sk = i_item_sk
+    join date_dim on ss_sold_date_sk = d_date_sk
  where ss_item_sk in (select ss_item_sk from cross_items)
-   and ss_item_sk = i_item_sk
-   and ss_sold_date_sk = d_date_sk
    and d_week_seq = (select d_week_seq
                      from date_dim
                      where d_year = [YEAR]
                        and d_moy = 12
                        and d_dom = [DAY])
  group by i_brand_id,i_class_id,i_category_id
- having sum(ss_quantity*ss_list_price) > (select average_sales from avg_sales)) last_year
+ having sum(sum_qty_list_price) > (select average_sales from avg_sales)) last_year
  where this_year.i_brand_id= last_year.i_brand_id
    and this_year.i_class_id = last_year.i_class_id
    and this_year.i_category_id = last_year.i_category_id

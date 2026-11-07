@@ -105,7 +105,7 @@ WITH store_year AS (
 	       ,c_last_name customer_last_name
 	       ,[SELECTONE]
 	       ,d_year dyear
-	       ,SUM((sum_ext_list_price - sum_ext_wholesale_cost - sum_ext_discount_amt + sum_ext_sales_price) / 2.0) year_total
+	       ,SUM((ws_ext_list_price - ws_ext_wholesale_cost - ws_ext_discount_amt + ws_ext_sales_price) / 2.0) year_total
 	FROM customer
 	     INNER JOIN MV_Web_Sales_Daily_Item mv WITH (NOEXPAND) ON c_customer_sk = ws_bill_customer_sk
 	     INNER JOIN date_dim ON ws_sold_date_sk = d_date_sk
