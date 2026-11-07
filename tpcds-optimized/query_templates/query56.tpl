@@ -39,18 +39,21 @@
  define _LIMIT=100;
 
  with ss as (
- select i_item_id,sum(sum_ext_sales_price) total_sales
+ select i_item_id,sum(ss_ext_sales_price) total_sales
  from
- 	MV_Store_Sales_Daily_Item mv WITH (NOEXPAND)
-        join date_dim on mv.ss_sold_date_sk = d_date_sk
-        join customer_address on mv.ss_addr_sk = ca_address_sk
-        join item on mv.ss_item_sk = i_item_sk
+ 	store_sales,
+ 	date_dim,
+         customer_address,
+         item
  where i_item_id in (select
      i_item_id
 from item
 where i_color in ('[COLOR.1]','[COLOR.2]','[COLOR.3]'))
+ and     ss_item_sk              = i_item_sk
+ and     ss_sold_date_sk         = d_date_sk
  and     d_year                  = [YEAR]
  and     d_moy                   = [MONTH]
+ and     ss_addr_sk              = ca_address_sk
  and     ca_gmt_offset           = [GMT] 
  group by i_item_id),
  cs as (
