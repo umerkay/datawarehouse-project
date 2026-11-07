@@ -233,5 +233,6 @@ avg_sales as
    and this_year.i_class_id = last_year.i_class_id
    and this_year.i_category_id = last_year.i_category_id
  order by this_year.channel, this_year.i_brand_id, this_year.i_class_id, this_year.i_category_id
+    OPTION (USE HINT('FORCE_LEGACY_CARDINALITY_ESTIMATION'))
  [_LIMITC];
 
