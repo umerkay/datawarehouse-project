@@ -36,8 +36,8 @@
  define DAY = random(1,28,uniform);
  define _LIMIT=100; 
 
-with  cross_items as
- (select i_item_sk ss_item_sk
+select i_item_sk ss_item_sk
+into #cross_items_q14a
  from item,
  (select iss.i_brand_id brand_id
      ,iss.i_class_id class_id
@@ -71,9 +71,9 @@ with  cross_items as
  where i_brand_id = brand_id
       and i_class_id = class_id
       and i_category_id = category_id
-),
- avg_sales as
- (select avg(quantity*list_price) average_sales
+create unique clustered index IX_cross_items_q14a on #cross_items_q14a(ss_item_sk)
+declare @average_sales_q14a decimal(38,6)
+select @average_sales_q14a = avg(quantity*list_price)
   from (select ss_quantity quantity
              ,ss_list_price list_price
        from store_sales
@@ -93,7 +93,7 @@ with  cross_items as
        from web_sales
            ,date_dim
        where ws_sold_date_sk = d_date_sk
-         and d_year between [YEAR] and [YEAR] + 2) x)
+         and d_year between [YEAR] and [YEAR] + 2) x
  [_LIMITA] select [_LIMITB] channel, i_brand_id,i_class_id,i_category_id,sum(sales), sum(number_sales)
  from(
        select 'store' channel, i_brand_id,i_class_id
@@ -102,44 +102,44 @@ with  cross_items as
        from store_sales
            ,item
            ,date_dim
-       where ss_item_sk in (select ss_item_sk from cross_items)
+       where ss_item_sk in (select ss_item_sk from #cross_items_q14a)
          and ss_item_sk = i_item_sk
          and ss_sold_date_sk = d_date_sk
          and d_year = [YEAR]+2 
          and d_moy = 11
        group by i_brand_id,i_class_id,i_category_id
-       having sum(ss_quantity*ss_list_price) > (select average_sales from avg_sales)
+       having sum(ss_quantity*ss_list_price) > @average_sales_q14a
        union all
        select 'catalog' channel, i_brand_id,i_class_id,i_category_id, sum(cs_quantity*cs_list_price) sales, count(*) number_sales
        from catalog_sales
            ,item
            ,date_dim
-       where cs_item_sk in (select ss_item_sk from cross_items)
+       where cs_item_sk in (select ss_item_sk from #cross_items_q14a)
          and cs_item_sk = i_item_sk
          and cs_sold_date_sk = d_date_sk
          and d_year = [YEAR]+2 
          and d_moy = 11
        group by i_brand_id,i_class_id,i_category_id
-       having sum(cs_quantity*cs_list_price) > (select average_sales from avg_sales)
+       having sum(cs_quantity*cs_list_price) > @average_sales_q14a
        union all
        select 'web' channel, i_brand_id,i_class_id,i_category_id, sum(ws_quantity*ws_list_price) sales , count(*) number_sales
        from web_sales
            ,item
            ,date_dim
-       where ws_item_sk in (select ss_item_sk from cross_items)
+       where ws_item_sk in (select ss_item_sk from #cross_items_q14a)
          and ws_item_sk = i_item_sk
          and ws_sold_date_sk = d_date_sk
          and d_year = [YEAR]+2
          and d_moy = 11
        group by i_brand_id,i_class_id,i_category_id
-       having sum(ws_quantity*ws_list_price) > (select average_sales from avg_sales)
+       having sum(ws_quantity*ws_list_price) > @average_sales_q14a
  ) y
  group by rollup (channel, i_brand_id,i_class_id,i_category_id)
  order by channel,i_brand_id,i_class_id,i_category_id
  [_LIMITC];
  
- with  cross_items as
- (select i_item_sk ss_item_sk
+ select i_item_sk ss_item_sk
+ into #cross_items_q14b
  from item,
  (select iss.i_brand_id brand_id
      ,iss.i_class_id class_id
@@ -173,9 +173,9 @@ with  cross_items as
  where i_brand_id = brand_id
       and i_class_id = class_id
       and i_category_id = category_id
-),
- avg_sales as
-(select avg(quantity*list_price) average_sales
+ create unique clustered index IX_cross_items_q14b on #cross_items_q14b(ss_item_sk)
+ declare @average_sales_q14b decimal(38,6)
+ select @average_sales_q14b = avg(quantity*list_price)
   from (select ss_quantity quantity
              ,ss_list_price list_price
        from store_sales
@@ -195,7 +195,7 @@ with  cross_items as
        from web_sales
            ,date_dim
        where ws_sold_date_sk = d_date_sk
-         and d_year between [YEAR] and [YEAR] + 2) x)
+         and d_year between [YEAR] and [YEAR] + 2) x
  [_LIMITA] select [_LIMITB] this_year.channel ty_channel
                            ,this_year.i_brand_id ty_brand
                            ,this_year.i_class_id ty_class
@@ -214,7 +214,7 @@ with  cross_items as
  from store_sales 
      ,item
      ,date_dim
- where ss_item_sk in (select ss_item_sk from cross_items)
+ where ss_item_sk in (select ss_item_sk from #cross_items_q14b)
    and ss_item_sk = i_item_sk
    and ss_sold_date_sk = d_date_sk
    and d_week_seq = (select d_week_seq
@@ -223,13 +223,13 @@ with  cross_items as
                        and d_moy = 12
                        and d_dom = [DAY])
  group by i_brand_id,i_class_id,i_category_id
- having sum(ss_quantity*ss_list_price) > (select average_sales from avg_sales)) this_year,
+ having sum(ss_quantity*ss_list_price) > @average_sales_q14b) this_year,
  (select 'store' channel, i_brand_id,i_class_id
         ,i_category_id, sum(ss_quantity*ss_list_price) sales, count(*) number_sales
  from store_sales
      ,item
      ,date_dim
- where ss_item_sk in (select ss_item_sk from cross_items)
+ where ss_item_sk in (select ss_item_sk from #cross_items_q14b)
    and ss_item_sk = i_item_sk
    and ss_sold_date_sk = d_date_sk
    and d_week_seq = (select d_week_seq
@@ -238,7 +238,7 @@ with  cross_items as
                        and d_moy = 12
                        and d_dom = [DAY])
  group by i_brand_id,i_class_id,i_category_id
- having sum(ss_quantity*ss_list_price) > (select average_sales from avg_sales)) last_year
+ having sum(ss_quantity*ss_list_price) > @average_sales_q14b) last_year
  where this_year.i_brand_id= last_year.i_brand_id
    and this_year.i_class_id = last_year.i_class_id
    and this_year.i_category_id = last_year.i_category_id

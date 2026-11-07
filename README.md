@@ -73,6 +73,17 @@ docker exec -it tpcds_sqlserver \
 
 The strategy is idempotent and can be reapplied safely. Keep an unindexed database, such as `tpcds_01`, for baseline comparisons.
 
+### Validated all-scale optimization path
+
+Validation identified two additional production changes: generate queries from `tpcds-optimized` to use the Q14/Q23 rewrites, and apply the scale-aware statistics/index policy below. The wrapper runs FULLSCAN statistics at every scale, skips helper indexes at SF1/SF2, and installs the five validated dimension-filter indexes only at SF5/SF10.
+
+```bash
+docker exec -it tpcds_sqlserver \
+  bash /scripts/08_apply_scale_aware_optimizations.sh 10GB tpcds_10_optimized
+```
+
+Regenerate optimized querysets with `scripts/01_generate_data.sh --queryset --split-queries` after updating the templates.
+
 ### 5. Run the Benchmark
 
 Execute the benchmark script against the populated database. This script runs directly inside the SQL Server container.

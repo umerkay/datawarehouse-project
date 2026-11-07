@@ -28,6 +28,14 @@ if [ -z "$SCALE_FOLDER" ] || [ -z "$DB_NAME" ]; then
     echo "Error: Missing arguments."
     exit 1
 fi
+if [[ ! "$SCALE_FOLDER" =~ ^(1|2|5|10)GB$ ]]; then
+    echo "Error: Unsupported scale folder: $SCALE_FOLDER" >&2
+    exit 1
+fi
+if [[ ! "$DB_NAME" =~ ^[A-Za-z0-9_]+$ ]]; then
+    echo "Error: Unsupported database name: $DB_NAME" >&2
+    exit 1
+fi
 
 echo "Starting data load for scale: $SCALE_FOLDER into database: $DB_NAME"
 

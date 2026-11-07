@@ -12,6 +12,11 @@ SPLIT_QUERIES=false
 
 SEED=56
 
+# The repository is frequently checked out on Windows but the scripts execute
+# in Linux containers. Normalize all mounted shell/SQL control files up front.
+find /scripts -type f \( -name '*.sh' -o -name '*.sql' \) \
+    -exec sed -i 's/\r$//' {} +
+
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --no-recompile)
@@ -63,11 +68,34 @@ fi
 # 1. Navigate to the mounted tools directory
 cd /tpcds-kit/tools
 
+# dsqgen treats a trailing carriage return in templates.lst as part of the
+# template filename (for example, query1.tpl\r), so normalize both lists.
+sed -i 's/\r$//' \
+    /tpcds-kit/query_templates/templates.lst \
+    /tpcds-optimized/query_templates/templates.lst
+find /tpcds-kit/query_templates /tpcds-optimized/query_templates \
+    -maxdepth 1 -type f -name '*.tpl' -exec sed -i 's/\r$//' {} +
+
 # 2. Clean previous Mac builds and compile for Linux
 if [ "$SKIP_RECOMPILE" = false ]; then
     echo "Compiling dsdgen for Linux..."
+    # Git checkouts on Windows may leave CRLF in distcomp inputs. distcomp can
+    # segfault on that input while generating tpcds.idx, so normalize the small
+    # metadata files before compilation. The generated data itself is unchanged.
+    for metadata in *.dst; do
+        sed -i 's/\r$//' "$metadata"
+        if ! iconv -f UTF-8 -t UTF-8 "$metadata" >/dev/null 2>&1; then
+            iconv -f ISO-8859-1 -t UTF-8 "$metadata" > "$metadata.utf8"
+            mv -- "$metadata.utf8" "$metadata"
+        fi
+    done
+    sed -i 's/\r$//' column_list.txt
+    # Repair a malformed nested add() token present in this repository copy.
+    sed -i 's/add ("add ("COOK ISLANDS":1);/add ("COOK ISLANDS":1);/' tpcds.dst
     make -s clean
-    make -s OS=LINUX > /dev/null 2>&1
+    # Keep compiler output visible: silent failures otherwise make unattended
+    # scale generation impossible to diagnose.
+    make -s OS=LINUX
 fi
 
 # 3. Generate the data for each requested scale factor
@@ -119,6 +147,7 @@ generate_queries() {
         }
         ' "$queryset_dir/benchmark.sql"
     fi
+    chmod -R a+rwX "$queryset_dir"
 }
 
 for size in "${SIZES[@]}"; do
