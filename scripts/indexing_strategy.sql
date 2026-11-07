@@ -1,3 +1,27 @@
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+-- Selected from the dimension-index experiment: single-column B-tree indexes.
+-- Keep the existing fact CCIs, primary keys and materialized-view strategy.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.customer') AND name = N'IX_customer_current_addr')
+    CREATE NONCLUSTERED INDEX IX_customer_current_addr ON dbo.customer(c_current_addr_sk);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.customer_address') AND name = N'IX_customer_address_state')
+    CREATE NONCLUSTERED INDEX IX_customer_address_state ON dbo.customer_address(ca_state);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.date_dim') AND name = N'IX_date_dim_year')
+    CREATE NONCLUSTERED INDEX IX_date_dim_year ON dbo.date_dim(d_year);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.date_dim') AND name = N'IX_date_dim_moy')
+    CREATE NONCLUSTERED INDEX IX_date_dim_moy ON dbo.date_dim(d_moy);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.date_dim') AND name = N'IX_date_dim_date')
+    CREATE NONCLUSTERED INDEX IX_date_dim_date ON dbo.date_dim(d_date);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.date_dim') AND name = N'IX_date_dim_month_seq')
+    CREATE NONCLUSTERED INDEX IX_date_dim_month_seq ON dbo.date_dim(d_month_seq);
+GO
+
 DROP VIEW IF EXISTS dbo.MV_Web_Sales_Daily_Item;
 GO
 
