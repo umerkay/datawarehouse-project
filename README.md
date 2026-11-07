@@ -61,17 +61,17 @@ docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01_optim
 
 ### 4. Apply the analytical indexing strategy
 
-For an optimized comparison, load the same scale factor into a separate database and apply the reproducible strategy in `scripts/indexing_strategy.sql`. The strategy keeps the schema's clustered primary keys, creates covering nonclustered columnstore indexes on all seven fact tables, and adds a small set of selective rowstore indexes for dimension filters and return anti-joins. Fact statistics use a 10% sample while small dimensions use `FULLSCAN`, keeping preparation cost practical as scale grows. Index creation and statistics updates happen before benchmarking and are not included in query timings.
+For an optimized comparison, load the same scale factor into a separate database with `--optimized` to create the seven fact-table clustered columnstores. Then run `05_apply_indexing.sh`: it adds six single-column nonclustered dimension indexes on `customer(c_current_addr_sk)`, `customer_address(ca_state)` and `date_dim(d_year, d_moy, d_date, d_month_seq)` (four separate date indexes), then executes `scripts/indexing_strategy.sql` to recreate the store and web materialized views. The selected six-index subset still requires performance validation. Preparation happens before benchmarking and is not included in query timings.
 
 ```bash
 docker exec -it tpcds_sqlserver \
-  bash /scripts/02_load_data.sh 1GB tpcds_01_indexed --full-stats
+  bash /scripts/02_load_data.sh 1GB tpcds_01_indexed --optimized --full-stats
 
 docker exec -it tpcds_sqlserver \
   bash /scripts/05_apply_indexing.sh tpcds_01_indexed
 ```
 
-The strategy is idempotent and can be reapplied safely. Keep an unindexed database, such as `tpcds_01`, for baseline comparisons.
+The six indexes are skipped when their names already exist; other indexes are not removed. The materialized views are dropped and recreated on every invocation. Run this preparation after loading: rerunning `02_load_data.sh` replaces the database and removes these additions. For an index-only comparison, keep a separate CCI baseline without the additional indexes or views. Use `04_profile_queries.sh --optimized` to evaluate the rewritten queries; `03_run_benchmark.sh` reads the original queryset. The historical measurements below describe an earlier strategy, not the current six-index configuration.
 
 #### Measured engineering result (2026-10-26)
 
