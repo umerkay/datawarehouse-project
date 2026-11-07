@@ -52,5 +52,6 @@
  	and d_qoy = [QOY] and d_year = [YEAR]
  group by ca_zip
  order by ca_zip
+  OPTION (USE HINT('FORCE_LEGACY_CARDINALITY_ESTIMATION'))
  [_LIMITC];
 
