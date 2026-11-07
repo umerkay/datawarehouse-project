@@ -77,15 +77,18 @@ The strategy is idempotent and can be reapplied safely. Keep an unindexed databa
 
 Execute the benchmark script against the populated database. This script runs directly inside the SQL Server container.
 
-**Protocol:** The script requires and reads only `/data/<SCALE_FOLDER>/queryset/benchmark.sql`. It runs this benchmark **6 times**. The first run is discarded to allow for buffer pool warm-up, and the remaining 5 runs are averaged. Execution times are tracked with millisecond precision.
+**Protocol:** The script requires and reads only `/data/<SCALE_FOLDER>/queryset/benchmark.sql` by default, or `/data/<SCALE_FOLDER>/queryset-optimized/benchmark.sql` with `--optimized`. In both cases, it uses the single concatenated benchmark file, not the individual query files. It runs this benchmark **6 times**. The first run is discarded to allow for buffer pool warm-up, and the remaining 5 runs are averaged. Execution times are tracked with millisecond precision.
 
-**Usage:** `bash /scripts/03_run_benchmark.sh <SCALE_FOLDER> <DB_NAME> [--full-stats-after-warmup]`
+**Usage:** `bash /scripts/03_run_benchmark.sh <SCALE_FOLDER> <DB_NAME> [--optimized] [--full-stats-after-warmup]`
 
 Use `--full-stats-after-warmup` to run [`scripts/full_stats.sql`](scripts/full_stats.sql) after the discarded warm-up and before the five measured runs. It updates statistics but does not clear the procedure cache. The statistics-maintenance time is not included in the measured query timings. Without the flag, benchmark behavior is unchanged.
 
 ```bash
 docker exec -it tpcds_sqlserver \
   bash /scripts/03_run_benchmark.sh 1GB tpcds_01 --full-stats-after-warmup
+
+docker exec -it tpcds_sqlserver \
+  bash /scripts/03_run_benchmark.sh 1GB tpcds_01_optimized --optimized --full-stats-after-warmup
 
 ```
 

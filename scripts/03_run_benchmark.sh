@@ -2,7 +2,7 @@
 set -e
 
 if [[ $# -lt 2 ]]; then
-    echo "Usage: $0 <SCALE_FOLDER> <DB_NAME> [--full-stats-after-warmup]" >&2
+    echo "Usage: $0 <SCALE_FOLDER> <DB_NAME> [--optimized] [--full-stats-after-warmup]" >&2
     exit 1
 fi
 
@@ -15,9 +15,13 @@ if [ -z "$DB_NAME" ]; then
     exit 1
 fi
 
+OPTIMIZED_QUERYSET=false
 FULL_STATS_AFTER_WARMUP=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --optimized)
+            OPTIMIZED_QUERYSET=true
+            ;;
         --full-stats-after-warmup)
             FULL_STATS_AFTER_WARMUP=true
             ;;
@@ -29,6 +33,9 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 QUERY_DIR="/data/${SCALE_FOLDER}/queryset"
+if [ "$OPTIMIZED_QUERYSET" = true ]; then
+    QUERY_DIR="/data/${SCALE_FOLDER}/queryset-optimized"
+fi
 QUERY_FILE="$QUERY_DIR/benchmark.sql"
 SA_PASS=$MSSQL_SA_PASSWORD
 
