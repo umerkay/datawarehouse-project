@@ -54,7 +54,7 @@ from (select i_category
                   ,d_qoy
                   ,d_moy
                   ,s_store_id
-                  ,sum(coalesce(mv.sum_sales_price_times_quantity,0)) sumsales
+                  ,sum(coalesce(mv.sum_qty_sales_price,0)) sumsales
             from MV_Store_Sales_Daily_Item mv WITH (NOEXPAND)
                   join date_dim on mv.ss_sold_date_sk = d_date_sk
                   join store on mv.ss_store_sk = s_store_sk
