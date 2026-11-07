@@ -129,14 +129,17 @@ def plan(sql, database, query, target):
                       '\nGO\nSET SHOWPLAN_XML OFF;\nGO\n')
     target.write_bytes(raw)
     objects = set()
-    for xml in re.findall(r'<ShowPlanXML\b.*?</ShowPlanXML>', raw.decode('utf-8'), re.S):
+    output = re.sub(r'[\r\n]+', '', raw.decode('utf-8-sig'))
+    plans = re.findall(r'<ShowPlanXML\b.*?</ShowPlanXML>', output, re.S)
+    if not plans:
+        raise ValueError('No estimated plan returned; inspect ' + str(target))
+    for xml in plans:
         root = ET.fromstring(xml)
         for obj in root.iter('{http://schemas.microsoft.com/sqlserver/2004/07/showplan}Object'):
             name = obj.get('Index', '').strip('[]')
             if name.startswith('DIMEXP_'):
                 objects.add((obj.get('Table', '').strip('[]'), name))
-    if b'<ShowPlanXML' not in raw:
-        raise ValueError('No estimated plan returned; inspect ' + str(target))
+    target.write_text('\n'.join(plans), encoding='utf-8')
     return sorted(objects)
 
 
