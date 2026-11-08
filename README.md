@@ -9,6 +9,29 @@ To guarantee perfect reproducibility across different host operating systems, th
 ## Prerequisites
 * Docker and Docker Compose installed.
 
+## Quick start
+
+After cloning the repository and starting Docker Desktop, run this from the
+repository root to generate the data, create and load the baseline and optimized
+databases, apply the optimized indexes, and compare benchmark runtimes:
+
+```bash
+./run.sh
+```
+
+This runs the 1GB scale factor by default. To use another scale factor, pass it
+in GB, for example `./run.sh 5`. The comparison is printed in the terminal and
+saved to `benchmark_results/summary_<scale>GB.csv`.
+
+You do not need to read the rest of this README for the standard comparison.
+Continue below only if you want to run a specific step or use the additional
+benchmark and analysis options.
+
+If `.env` is absent and `MSSQL_SA_PASSWORD` is not set in the environment,
+`run.sh` creates a local `.env` with a randomly generated SQL Server password.
+Each run regenerates the selected scale's data and drops/recreates its baseline
+and optimized databases.
+
 ---
 
 ## Workflow
@@ -81,7 +104,7 @@ Execute the benchmark script against the populated database. This script runs di
 
 **Usage:** `bash /scripts/03_run_benchmark.sh <SCALE_FOLDER> <DB_NAME> [--optimized] [--full-stats-after-warmup]`
 
-Use `--full-stats-after-warmup` to run [`scripts/full_stats.sql`](scripts/full_stats.sql) after the discarded warm-up and before the five measured runs. It updates statistics but does not clear the procedure cache. The statistics-maintenance time is not included in the measured query timings. Without the flag, benchmark behavior is unchanged.
+Use `--full-stats-after-warmup` to update statistics with FULLSCAN after the discarded warm-up and before the five measured runs, then clear the database-scoped procedure cache. Maintenance time is not included in measured query timings. Without the flag, benchmark behavior is unchanged.
 
 ```bash
 docker exec -it tpcds_sqlserver \
@@ -92,9 +115,18 @@ docker exec -it tpcds_sqlserver \
 
 ```
 
+To run one full-workload warm-up, then update FULLSCAN statistics and clear the
+database-scoped procedure cache, use `/scripts/02b_warmup_stats.sh`. This is a
+separate preparation step and does not run measured benchmark repetitions:
+
+```bash
+docker exec -it tpcds_sqlserver \
+  bash /scripts/02b_warmup_stats.sh 1GB tpcds_01_optimized --optimized
+```
+
 ### 6. Development: Profile Individual Queries
 
-Use the separate profiling script when you want diagnostic timings for each query rather than the normal aggregate benchmark. It reads one SQL filename per row from `data/<SCALE_FOLDER>/queryset/queries.lst` and executes those pre-split files directly, ignoring unlisted SQL files. By default, it runs each selected query once for warm-up and five measured times, then ranks the queries by average duration. Set the environment variables `WARMUP_RUNS` (integer >= 0) and `MEASURED_RUNS` (integer >= 1) to override these counts. Warm-up timings are discarded, and measured runs in `timings.csv` are numbered starting at 1. It logs each query before and after execution; on failure, it reports the query, run, elapsed time, and `sqlcmd` exit code. Add `--full-stats-after-warmup` to update statistics between the warm-up pass and measured passes without clearing the procedure cache.
+Use the separate profiling script when you want diagnostic timings for each query rather than the normal aggregate benchmark. It reads one SQL filename per row from `data/<SCALE_FOLDER>/queryset/queries.lst` and executes those pre-split files directly, ignoring unlisted SQL files. By default, it runs each selected query once for warm-up and five measured times, then ranks the queries by average duration. Set the environment variables `WARMUP_RUNS` (integer >= 0) and `MEASURED_RUNS` (integer >= 1) to override these counts. Warm-up timings are discarded, and measured runs in `timings.csv` are numbered starting at 1. It logs each query before and after execution; on failure, it reports the query, run, elapsed time, and `sqlcmd` exit code. Add `--full-stats-after-warmup` to update statistics with FULLSCAN and clear the database-scoped procedure cache between the warm-up pass and measured passes.
 
 If `queries.lst` is missing, the script prints a warning and exits without profiling. Generate the split queries and list with:
 

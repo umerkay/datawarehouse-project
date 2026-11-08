@@ -61,7 +61,8 @@ for RUN in {1..6}; do
     # Record time in milliseconds
     START_TIME=$(date +%s%3N)
 
-    /opt/mssql-tools18/bin/sqlcmd -b -S localhost -U sa -P "$SA_PASS" -C -d $DB_NAME -i "$QUERY_FILE" -o /dev/null
+    /opt/mssql-tools18/bin/sqlcmd -b -I -r1 -S localhost -U sa -P "$SA_PASS" -C \
+        -d "$DB_NAME" -i "$QUERY_FILE" -o /dev/null
 
     # Record end time in milliseconds
     END_TIME=$(date +%s%3N)
@@ -73,6 +74,9 @@ for RUN in {1..6}; do
             echo "Updating statistics with FULLSCAN before measured runs..."
             /opt/mssql-tools18/bin/sqlcmd -b -S localhost -U sa -P "$SA_PASS" -C \
                 -d "$DB_NAME" -i /scripts/full_stats.sql
+            echo "Clearing the database-scoped procedure cache..."
+            /opt/mssql-tools18/bin/sqlcmd -b -S localhost -U sa -P "$SA_PASS" -C \
+                -d "$DB_NAME" -i /scripts/clear_stats_cache.sql
             echo "Statistics update completed; measured runs will begin."
         fi
     else
