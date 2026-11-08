@@ -13,7 +13,8 @@ To guarantee perfect reproducibility across different host operating systems, th
 
 After cloning the repository and starting Docker Desktop, run this from the
 repository root to generate the data, create and load the baseline and optimized
-databases, apply the optimized indexes, and compare benchmark runtimes:
+databases, apply the optimized indexes, warm up the optimized workload, recalculate
+its statistics and clear its procedure cache, then compare benchmark runtimes:
 
 ```bash
 ./run.sh

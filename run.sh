@@ -24,9 +24,9 @@ docker compose up -d --build
 docker exec tpcds_workspace bash /scripts/01_generate_data.sh "$SCALE"
 
 docker exec tpcds_sqlserver bash /scripts/02_load_data.sh \
-    "$SCALE_FOLDER" "$BASELINE_DB" --full-stats
+    "$SCALE_FOLDER" "$BASELINE_DB"
 docker exec tpcds_sqlserver bash /scripts/02_load_data.sh \
-    "$SCALE_FOLDER" "$OPTIMIZED_DB" --optimized --full-stats
+    "$SCALE_FOLDER" "$OPTIMIZED_DB" --optimized
 docker exec tpcds_sqlserver bash /scripts/05_apply_indexing.sh "$OPTIMIZED_DB"
 
 echo "Running baseline benchmark..."
@@ -35,6 +35,8 @@ BASELINE_OUTPUT=$(docker exec tpcds_sqlserver \
 printf '%s\n' "$BASELINE_OUTPUT"
 
 echo "Running optimized benchmark..."
+docker exec tpcds_sqlserver bash /scripts/02b_warmup_stats.sh \
+    "$SCALE_FOLDER" "$OPTIMIZED_DB" --optimized
 OPTIMIZED_OUTPUT=$(docker exec tpcds_sqlserver \
     bash /scripts/03_run_benchmark.sh "$SCALE_FOLDER" "$OPTIMIZED_DB" --optimized)
 printf '%s\n' "$OPTIMIZED_OUTPUT"
