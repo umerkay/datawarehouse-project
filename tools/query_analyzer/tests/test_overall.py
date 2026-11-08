@@ -1,8 +1,8 @@
 import unittest
 import xml.etree.ElementTree as ET
-from query_analyzer.core.common import SCALES
-from query_analyzer.core.overall import overall_analysis
-from query_analyzer.web.overall import chart, render
+from tools.query_analyzer.core.common import SCALES
+from tools.query_analyzer.core.overall import overall_analysis
+from tools.query_analyzer.web.overall import chart, render
 
 
 def payloads():

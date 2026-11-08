@@ -14,7 +14,7 @@ services:
       - ./tpcds-kit:/tpcds-kit
       - ./tpcds-optimized:/tpcds-optimized
       - ./scripts:/scripts
-      - ./query_analyzer:/query_analyzer
+      - ./tools/query_analyzer:/tools/query_analyzer
       - ./data:/data
       - ./benchmark_results:/benchmark_results
       - mssql_data:/var/opt/mssql
@@ -33,7 +33,7 @@ services:
       - ./tpcds-kit:/tpcds-kit
       - ./tpcds-optimized:/tpcds-optimized
       - ./scripts:/scripts
-      - ./query_analyzer:/query_analyzer
+      - ./tools/query_analyzer:/tools/query_analyzer
       - ./data:/data
 
 volumes:

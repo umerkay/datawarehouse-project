@@ -24,12 +24,12 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
-      - run: python -B -m unittest discover -s query_analyzer/tests
-      - run: python -B -m query_analyzer build
+      - run: python -B -m unittest discover -s tools/query_analyzer/tests
+      - run: python -B -m tools.query_analyzer build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: query_analyzer/site
+          path: tools/query_analyzer/site
   deploy:
     needs: build
     permissions:

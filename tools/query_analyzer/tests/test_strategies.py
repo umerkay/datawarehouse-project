@@ -1,7 +1,7 @@
 import unittest
 
-from query_analyzer.core.strategies import strategies
-from query_analyzer.web.strategies import cards
+from tools.query_analyzer.core.strategies import strategies
+from tools.query_analyzer.web.strategies import cards
 
 
 def operator(node, physical, logical='', children=(), **extra):

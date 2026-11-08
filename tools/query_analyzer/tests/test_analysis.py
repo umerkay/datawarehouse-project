@@ -4,9 +4,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from query_analyzer.core.analysis import analyze
-from query_analyzer.app.cli import main
-from query_analyzer.tests.helpers import PLAN
+from tools.query_analyzer.core.analysis import analyze
+from tools.query_analyzer.app.cli import main
+from tools.query_analyzer.tests.helpers import PLAN
 
 
 class AnalysisTests(unittest.TestCase):
@@ -62,7 +62,7 @@ class AnalysisTests(unittest.TestCase):
             self.assertIn('<html lang="en">', page)
 
     def test_dashboard_has_data_without_javascript(self):
-        from query_analyzer.web.dashboard import render
+        from tools.query_analyzer.web.dashboard import render
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'query_001.xml'
             path.write_text(PLAN)
@@ -80,7 +80,7 @@ class AnalysisTests(unittest.TestCase):
             self.assertNotIn('<!--__', page)
 
     def test_dashboard_empty_and_unmeasured_states(self):
-        from query_analyzer.web.dashboard import render
+        from tools.query_analyzer.web.dashboard import render
         page = render(dict(queries=[], errors=[{'error': 'invalid XML'}], timing_source=None), '')
         self.assertIn('No valid plans.', page)
         self.assertIn('invalid XML', page)
@@ -109,7 +109,7 @@ class AnalysisTests(unittest.TestCase):
             self.assertIn('href="report_5GB.html"', page)
 
     def test_evidence_groups_repeated_operations_and_hides_raw_messages(self):
-        from query_analyzer.web.dashboard import evidence
+        from tools.query_analyzer.web.dashboard import evidence
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'query_015.xml'
             path.write_text(PLAN)
@@ -164,7 +164,7 @@ class AnalysisTests(unittest.TestCase):
                 analyze(path)
 
     def test_index_candidates_with_different_impacts_are_grouped_once(self):
-        from query_analyzer.web.dashboard import evidence
+        from tools.query_analyzer.web.dashboard import evidence
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)/'query_001.xml'
             path.write_text(PLAN)

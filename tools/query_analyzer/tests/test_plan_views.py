@@ -3,12 +3,12 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
-from query_analyzer.core.analysis import analyze
-from query_analyzer.core.sources import read_indexes, load_sources
-from query_analyzer.web.plan_views import plan_tree, index_review
-from query_analyzer.web.dashboard import render
-from query_analyzer.web.experiments import render as experiments
-from query_analyzer.tests.helpers import PLAN
+from tools.query_analyzer.core.analysis import analyze
+from tools.query_analyzer.core.sources import read_indexes, load_sources
+from tools.query_analyzer.web.plan_views import plan_tree, index_review
+from tools.query_analyzer.web.dashboard import render
+from tools.query_analyzer.web.experiments import render as experiments
+from tools.query_analyzer.tests.helpers import PLAN
 
 
 class PlanViewsTests(unittest.TestCase):

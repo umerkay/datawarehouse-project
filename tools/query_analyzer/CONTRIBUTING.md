@@ -12,7 +12,7 @@ database or changes indexes, statistics, recovery models or server settings.
    helper below with trusted generated SELECT queries. Estimated plans do not
    provide measured duration or runtime rows. Export actual plans only when you
    intend to execute the query.
-3. Add files under `query_analyzer/datasets/5GB/plans/` or `10GB/plans/`. Preserve
+3. Add files under `tools/query_analyzer/datasets/5GB/plans/` or `10GB/plans/`. Preserve
    queryset filename stems: `query_001.xml` or `query_001.sqlplan`, etc. A complete
    current queryset has 103 entries. Partial contributions are allowed; the site
    reports actual coverage and missing queries without inventing plans.
@@ -24,9 +24,9 @@ database or changes indexes, statistics, recovery models or server settings.
 5. Package the capture into a single archive, then test and rebuild from the repository root:
 
    ```bash
-   python -B -m query_analyzer pack 5GB
-   python -B -m unittest discover -s query_analyzer/tests -v
-   python -B -m query_analyzer build
+   python -B -m tools.query_analyzer pack 5GB
+   python -B -m unittest discover -s tools/query_analyzer/tests -v
+   python -B -m tools.query_analyzer build
    ```
 
 6. Check the coverage cards, open several plan trees and review the pending states
@@ -50,13 +50,13 @@ does not display per-query diffs inside a binary ZIP.
 After the target database is already loaded and split queries exist:
 
 ```bash
-docker compose exec sqlserver bash /query_analyzer/scripts/capture_plans.sh 5GB tpcds_5
-docker compose exec sqlserver bash /query_analyzer/scripts/capture_plans.sh 10GB tpcds_10
+docker compose exec sqlserver bash /tools/query_analyzer/scripts/capture_plans.sh 5GB tpcds_5
+docker compose exec sqlserver bash /tools/query_analyzer/scripts/capture_plans.sh 10GB tpcds_10
 ```
 
 The default output goes directly into the corresponding `datasets/<size>/plans/`
 directory through the project's mount. Recreate the Compose containers if the
-`/query_analyzer` mount has not been added; do not reset database volumes.
+`/tools/query_analyzer` mount has not been added; do not reset database volumes.
 
 For a local SQL Server/sqlcmd installation, configure `QUERY_DIR`, `SQLCMD_BIN`,
 `SQL_SERVER`, `SQL_USER`, and `SQLCMDPASSWORD` in your environment. The helper also
@@ -66,7 +66,7 @@ with SELECT and SHOWPLAN permissions on the referenced databases.
 
 ```bash
 QUERY_DIR=/path/to/queryset SQLCMD_BIN=/path/to/sqlcmd \
-  bash query_analyzer/scripts/capture_plans.sh 5GB tpcds_5 1 3 15
+  bash tools/query_analyzer/scripts/capture_plans.sh 5GB tpcds_5 1 3 15
 ```
 
 `OUTPUT_DIR` overrides the destination; `PLAN_TIMEOUT` defaults to 120 seconds.

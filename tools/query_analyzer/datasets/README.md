@@ -53,7 +53,7 @@ datasets/5GB/
 ```
 
 Use either `.xml` or `.sqlplan` per query, not both with the same filename stem.
-Keep scale-specific plans separate. Run `python -m query_analyzer pack 5GB` after
+Keep scale-specific plans separate. Run `python -m tools.query_analyzer pack 5GB` after
 capturing files, then commit the archive. The website reads ZIPs in memory without
 extracting them; original XML bytes and filenames are retained.
 See `../CONTRIBUTING.md`.

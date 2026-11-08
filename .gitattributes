@@ -1,6 +1,6 @@
-query_analyzer/** text=auto eol=lf
-query_analyzer/datasets/** -text
-query_analyzer/datasets/*.json text eol=lf
+tools/query_analyzer/** text=auto eol=lf
+tools/query_analyzer/datasets/** -text
+tools/query_analyzer/datasets/*.json text eol=lf
 .github/workflows/** text eol=lf
 *.sh text eol=lf
 *.sql text eol=lf

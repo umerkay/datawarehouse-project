@@ -8,12 +8,12 @@ TPC-DS queries across 1GB, 2GB, 5GB and 10GB. The interface is in English.
 From the repository root, with **Python 3.10 or newer**:
 
 ```bash
-python -B -m query_analyzer build
-python -m http.server 8000 --directory query_analyzer/site
+python -B -m tools.query_analyzer build
+python -m http.server 8000 --directory tools/query_analyzer/site
 ```
 
 Open **http://localhost:8000/**. Alternatively, open
-`query_analyzer/site/index.html` directly or with VS Code Live Server.
+`tools/query_analyzer/site/index.html` directly or with VS Code Live Server.
 
 The build uses only Python's standard library. No pip installation, SQL Server,
 Docker, credentials, internet connection or raw `.dat` datasets are required to
@@ -22,7 +22,7 @@ only enhance navigation, search and filtering. CSS/JS assets are local.
 
 **Open `site/index.html`, not a file in `web/templates/`.**
 
-In VS Code, you can also right-click **`query_analyzer/index.html`** and choose
+In VS Code, you can also right-click **`tools/query_analyzer/index.html`** and choose
 **Open with Live Server**. This small, versioned entry page redirects to
 `site/index.html`. After a fresh clone, run the build command above first.
 
@@ -49,7 +49,7 @@ scripts are excluded.
 
 Follow [CONTRIBUTING.md](CONTRIBUTING.md): export `.sqlplan` or XML files into the
 appropriate local `datasets/<size>/plans/` directory, preserve filename stems such
-as `query_015`, run `python -m query_analyzer pack 5GB` (or `10GB`), test, and
+as `query_015`, run `python -m tools.query_analyzer pack 5GB` (or `10GB`), test, and
 rebuild. Commit the resulting `plans.zip`, not the loose files. The current complete queryset has 103 entries.
 Partial contributions are supported and their true coverage remains visible.
 
@@ -66,7 +66,7 @@ The code follows a single flow: **diagnostic inputs ? core analysis ? web render
 it without SQL Server or Docker.
 
 ```text
-query_analyzer/
+tools/query_analyzer/
   __init__.py, __main__.py   # package definition and python -m entry point
   app/                      # commands and site build orchestration
     cli.py                  # public commands: build and pack
@@ -105,14 +105,14 @@ the two Python package entry files and `index.html` for opening with Live Server
 Earlier root-level HTML/JSON files are kept
 in the ignored `inputs/legacy_root/` archive. Open `site/index.html` for the website.
 
-Run `python -B -m query_analyzer build` after editing. Never edit generated
+Run `python -B -m tools.query_analyzer build` after editing. Never edit generated
 `site/` files: the next build replaces them. Published asset URLs remain
 `assets/...`; the build copies files from `web/assets/` into `site/assets/`.
 
 `inputs/` and `local_tools/` are local-only archives, not application dependencies.
 The earlier query-015 experiment and machine-specific troubleshooting scripts
 remain in `local_tools/`; they are not part of the shared app. There is one CLI:
-`python -m query_analyzer`, with `build` and `pack` subcommands. Earlier individual
+`python -m tools.query_analyzer`, with `build` and `pack` subcommands. Earlier individual
 generator commands have been removed to avoid maintaining duplicate paths.
 
 Within `web/comparison.py`, `render` assembles the page, `query_section` composes a
@@ -129,8 +129,8 @@ package installation or bundler.
 ## Build options and tests
 
 ```bash
-python -B -m query_analyzer build --config path/to/sources.json --output path/to/site
-python -B -m unittest discover -s query_analyzer/tests -v
+python -B -m tools.query_analyzer build --config path/to/sources.json --output path/to/site
+python -B -m unittest discover -s tools/query_analyzer/tests -v
 ```
 
 Configuration uses the same four scale keys as `datasets/sources.json`.
@@ -167,7 +167,7 @@ git diff --cached --stat
 The second command should produce no output. Review existing unrelated changes
 separately; an ignore rule cannot select which tracked edits belong in a commit.
 
-Commit `query_analyzer/`, the two `query-analyzer-*.yml` workflows, `.gitignore`,
+Commit `tools/query_analyzer/`, the two `query-analyzer-*.yml` workflows, `.gitignore`,
 `.gitattributes`, and the root README change. Review your other working-tree changes
 separately. Do not force-add ignored local archives or raw datasets.
 
@@ -292,7 +292,7 @@ The **Baseline / indexed** page accepts optional `indexed_plans`,
 }
 ```
 
-Rebuild with `python -B -m query_analyzer build --config path/to/config.json`.
+Rebuild with `python -B -m tools.query_analyzer build --config path/to/config.json`.
 Plans may be ZIP archives or directories of XML/sqlplan files. The comparison
 shows SQL matching, structural changes, operator count changes, both plan trees
 and paired average durations when supplied. Neither captures nor timings are

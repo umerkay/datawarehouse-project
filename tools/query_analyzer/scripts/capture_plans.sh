@@ -47,4 +47,4 @@ for i in "${selected[@]}"; do
         exit 1
     fi
 done
-echo "Estimated plans captured in $output_dir. Run: python -m query_analyzer build"
+echo "Estimated plans captured in $output_dir. Run: python -m tools.query_analyzer build"

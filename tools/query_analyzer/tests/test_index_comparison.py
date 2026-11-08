@@ -1,7 +1,7 @@
 import unittest
-from query_analyzer.core.common import SCALES
-from query_analyzer.core.index_comparison import compare_indexes
-from query_analyzer.web.index_comparison import render
+from tools.query_analyzer.core.common import SCALES
+from tools.query_analyzer.core.index_comparison import compare_indexes
+from tools.query_analyzer.web.index_comparison import render
 
 
 def request(includes, equality=None):

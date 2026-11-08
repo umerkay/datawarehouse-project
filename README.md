@@ -85,11 +85,11 @@ docker exec -it tpcds_sqlserver bash /scripts/02_load_data.sh 1GB tpcds_01_optim
 
 ### 4. Apply the analytical indexing strategy
 
-For an optimized comparison, load the same scale factor into a separate database and apply the reproducible strategy in `scripts/indexing_strategy.sql`. The strategy uses nonclustered columnstore indexes because the schema already creates clustered primary-key indexes on the fact tables. Index creation and statistics updates happen before benchmarking and are not included in query timings.
+For an optimized comparison, load the same scale factor into a separate database and apply the reproducible strategy in `scripts/indexing_strategy.sql`. The optimized schema in `tpcds-optimized/tools/tpcds.sql` creates clustered columnstore indexes (CCI) on the seven fact tables; `scripts/indexing_strategy.sql` adds dimension indexes and indexed views. Index creation and statistics updates happen before benchmarking and are not included in query timings.
 
 ```bash
 docker exec -it tpcds_sqlserver \
-  bash /scripts/02_load_data.sh 1GB tpcds_01_indexed --full-stats
+  bash /scripts/02_load_data.sh 1GB tpcds_01_indexed --optimized --full-stats
 
 docker exec -it tpcds_sqlserver \
   bash /scripts/05_apply_indexing.sh tpcds_01_indexed
@@ -267,19 +267,19 @@ Each graph also analyzes **how** tables are used. Clicking a table shows its mos
 
 ## Analyze query execution plans
 
-The shareable offline analyzer is in [`query_analyzer/`](query_analyzer/README.md).
-It includes captured plans for 1GB, 2GB and 5GB, historical timing summaries, and
-instructions for additional captures. The 10GB plans are pending. No raw datasets
+The shareable offline analyzer is in [`tools/query_analyzer/`](tools/query_analyzer/README.md).
+It includes captured plans for 1GB, 2GB, 5GB and 10GB, historical timing summaries, and
+instructions for additional captures. No raw datasets
 or SQL connection are needed for the website.
 
 ```bash
-python -B -m query_analyzer build
-python -m http.server 8000 --directory query_analyzer/site
+python -B -m tools.query_analyzer build
+python -m http.server 8000 --directory tools/query_analyzer/site
 ```
 
-Open **http://localhost:8000/** or `query_analyzer/site/index.html`.
-See the [contribution guide](query_analyzer/CONTRIBUTING.md) to add plans and the
-[tool README](query_analyzer/README.md) for tests and optional GitHub Pages publishing.
+Open **http://localhost:8000/** or `tools/query_analyzer/site/index.html`.
+See the [contribution guide](tools/query_analyzer/CONTRIBUTING.md) to add plans and the
+[tool README](tools/query_analyzer/README.md) for tests and optional GitHub Pages publishing.
 
 ## Resetting the Environment
 

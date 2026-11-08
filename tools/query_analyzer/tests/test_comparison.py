@@ -3,11 +3,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from query_analyzer.core.sources import load_sources
-from query_analyzer.web.comparison import duration_chart, render, workload_data, operator_chart, plan_matrix
-from query_analyzer.core.plan_structure import structure
+from tools.query_analyzer.core.sources import load_sources
+from tools.query_analyzer.web.comparison import duration_chart, render, workload_data, operator_chart, plan_matrix
+from tools.query_analyzer.core.plan_structure import structure
 import xml.etree.ElementTree as ET
-from query_analyzer.tests.helpers import PLAN
+from tools.query_analyzer.tests.helpers import PLAN
 
 
 class ComparisonTests(unittest.TestCase):

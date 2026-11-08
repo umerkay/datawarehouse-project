@@ -7,11 +7,11 @@ import zipfile
 from unittest.mock import patch
 from urllib.parse import unquote, urlsplit
 
-from query_analyzer.app.build import build_site
-from query_analyzer.app.cli import main
-from query_analyzer.core.common import atomic_write
-from query_analyzer.core.sources import read_timings
-from query_analyzer.tests.helpers import PLAN
+from tools.query_analyzer.app.build import build_site
+from tools.query_analyzer.app.cli import main
+from tools.query_analyzer.core.common import atomic_write
+from tools.query_analyzer.core.sources import read_timings
+from tools.query_analyzer.tests.helpers import PLAN
 
 
 class Links(HTMLParser):
@@ -111,7 +111,7 @@ class BuildTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'page.html'
             path.write_text('old valid page')
-            with patch('query_analyzer.core.common.os.replace', side_effect=OSError('replace failed')):
+            with patch('tools.query_analyzer.core.common.os.replace', side_effect=OSError('replace failed')):
                 with self.assertRaises(OSError):
                     atomic_write(path,'new page')
             self.assertEqual(path.read_text(),'old valid page')
