@@ -20,7 +20,7 @@ SCALE_ID=$(printf '%02d' "$SCALE")
 BASELINE_DB="tpcds_${SCALE_ID}"
 OPTIMIZED_DB="${BASELINE_DB}_optimized"
 
-docker compose up -d --build
+docker compose up -d
 docker exec tpcds_workspace bash /scripts/01_generate_data.sh "$SCALE"
 
 docker exec tpcds_sqlserver bash /scripts/02_load_data.sh \
