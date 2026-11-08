@@ -42,7 +42,7 @@ and optimized databases.
 Build and start both containers in the background. The workspace build installs all required compilation and Python dependencies before its container starts. Compose will also mount the shared folders (`/tpcds-kit`, `/scripts`, `/data`) and create a permanent storage volume for the database.
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 
 ```
 
